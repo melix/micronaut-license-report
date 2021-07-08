@@ -17,34 +17,23 @@ abstract class LicenseExtension(@Inject val initScript: RegularFile) {
     abstract val layout: ProjectLayout
 
     fun checkout(uri: String, branch: String = "master", checkoutDir: Directory = layout.projectDirectory.dir("checkouts/${uri.checkoutDir}")) {
-        val repoDir = checkoutDir.asFile
-        if (repoDir.exists()) {
-            println("Updating $uri")
-            Git.open(repoDir)
-                    .checkout()
-                    .setName(branch)
-                    .call()
-            Git.open(repoDir)
-                    .pull()
-                    .setRebase(true)
-                    .call()
-        } else {
-            println("Checking out $uri branch $branch in $repoDir")
-            Git.cloneRepository()
-                    .setURI(uri)
-                    .setBranch(branch)
-                    .setDirectory(repoDir)
-                    .call()
+        val checkoutTask = tasks.register("checkout${checkoutDir.asFile.usableName}", GitRepoTask::class.java) {
+            this.repoDirectory.set(checkoutDir)
+            this.branch.set(branch)
+            this.uri.set(uri)
         }
-        report(repoDir)
+        val reportTask = report(checkoutDir.asFile)
+        reportTask.configure {
+            projectDirectory.set(checkoutTask.map { it.repoDirectory.get() })
+        }
     }
 
-    fun report(projectDir: File) = tasks.register(projectDir.reportTaskName, GenerateReport::class.java) {
+    fun report(projectDir: File) = tasks.register("reportFor${projectDir.usableName}", GenerateReport::class.java) {
         group = "License reporting"
-        description = "Generates license report for project ${projectDir.reportTaskName}"
+        description = "Generates license report for project ${projectDir.usableName}"
         initScript.set(this@LicenseExtension.initScript)
         projectDirectory.set(projectDir)
-        reportFile.set(layout.buildDirectory.file("reports/${projectDir.reportTaskName}/report.json"))
+        reportFile.set(layout.buildDirectory.file("reports/reportFor${projectDir.usableName}/report.json"))
     }
 
     private val String.checkoutDir: String
@@ -56,6 +45,7 @@ abstract class LicenseExtension(@Inject val initScript: RegularFile) {
             name
         }
 
-    private val File.reportTaskName: String
-        get() = "reportFor${name.split('-').map(String::capitalize).joinToString("")}"
+    private val File.usableName: String
+        get() = name.split('-').map(String::capitalize).joinToString("")
+
 }

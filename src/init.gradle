@@ -8,9 +8,12 @@ initscript {
         maven {
             url "https://plugins.gradle.org/m2/"
         }
+        mavenCentral()
     }
     dependencies {
         classpath "com.github.vlsi.gradle:license-gather-plugin:1.74"
+        classpath "org.codehaus.groovy:groovy-xml:3.0.8"
+        classpath "org.codehaus.groovy:groovy-json:3.0.8"
     }
 }
 
@@ -63,23 +66,25 @@ abstract class ReportAggregator extends DefaultTask {
             }
         }
         reports.files.each {
-            println "Parsing $it"
-            def xml = new XmlSlurper()
-                    .parse(it)
-            xml.components.component.each {
-                def id = it.@id.text()
-                it.'license-expression'.each { expr ->
-                    expr.license.each {
-                        registerLicense(id, it)
-                    }
-                    expr.and.license.each {
-                        registerLicense(id, it)
-                    }
-                    expr.or.license.each {
-                        registerLicense(id, it)
-                    }
-                    expr.expression.each {
-                        registerLicense(id, it)
+            if (it.exists()) {
+                println "Parsing $it"
+                def xml = new XmlSlurper()
+                        .parse(it)
+                xml.components.component.each {
+                    def id = it.@id.text()
+                    it.'license-expression'.each { expr ->
+                        expr.license.each {
+                            registerLicense(id, it)
+                        }
+                        expr.and.license.each {
+                            registerLicense(id, it)
+                        }
+                        expr.or.license.each {
+                            registerLicense(id, it)
+                        }
+                        expr.expression.each {
+                            registerLicense(id, it)
+                        }
                     }
                 }
             }
