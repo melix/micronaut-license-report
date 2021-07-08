@@ -1,0 +1,23 @@
+name: Java CI
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+      - name: Generate license report
+        run: ./gradlew licenseReportZip
+      - uses: actions/upload-artifact@v2
+        with:
+          name: report
+          path: build/license-report.zip

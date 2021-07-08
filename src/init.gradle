@@ -1,0 +1,104 @@
+import com.github.vlsi.gradle.license.api.*
+import groovy.json.JsonOutput
+import groovy.json.StreamingJsonBuilder
+import groovy.xml.XmlSlurper
+
+initscript {
+    repositories {
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
+    }
+    dependencies {
+        classpath "com.github.vlsi.gradle:license-gather-plugin:1.74"
+    }
+}
+
+rootProject {
+
+    def aggregator = rootProject.tasks.register("licenseReport", ReportAggregator) {
+        aggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
+    }
+
+    allprojects {
+        pluginManager.withPlugin('java') {
+            def singleReport = tasks.register("generateLicense", com.github.vlsi.gradle.license.GatherLicenseTask) {
+                configurations.set([project.configurations.runtimeClasspath])
+                SpdxLicense.values().each {
+                    ignoreMissingLicenseFor(it)
+                }
+            }
+            aggregator.configure {
+//                dependsOn(singleReport)
+                mustRunAfter(singleReport)
+                reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
+            }
+        }
+    }
+
+}
+
+abstract class ReportAggregator extends DefaultTask {
+    @InputFiles
+    abstract ConfigurableFileCollection getReports()
+
+    @OutputFile
+    abstract RegularFileProperty getAggregatedReport()
+
+    @TaskAction
+    void execute() {
+        def perComponent = [:].withDefault {
+            [] as Set
+        }
+        def perLicense = [:].withDefault {
+            [] as Set
+        }
+        def registerLicense = { id, node ->
+            def lic = node.@id.text() ?: node.@name.text() ?: node.text() ?: null
+            if (lic) {
+                perComponent[id].add(lic)
+                perLicense[lic].add(id)
+            } else {
+                println "License not found for $id!"
+            }
+        }
+        reports.files.each {
+            println "Parsing $it"
+            def xml = new XmlSlurper()
+                    .parse(it)
+            xml.components.component.each {
+                def id = it.@id.text()
+                it.'license-expression'.each { expr ->
+                    expr.license.each {
+                        registerLicense(id, it)
+                    }
+                    expr.and.license.each {
+                        registerLicense(id, it)
+                    }
+                    expr.or.license.each {
+                        registerLicense(id, it)
+                    }
+                    expr.expression.each {
+                        registerLicense(id, it)
+                    }
+                }
+            }
+        }
+        def json = new StringWriter()
+        new StreamingJsonBuilder(json).with { writer ->
+            writer(
+                    licenses: perLicense.collect {id, components ->
+                        [license: [name: id, components: components]]
+                    },
+                    components: perComponent.collect { id, licenses ->
+                        [component: [id: id, licenses: licenses]]
+                    },
+            )
+        }
+        aggregatedReport.get().asFile.with {
+            it.parentFile.mkdirs()
+            it.text = JsonOutput.prettyPrint(json.toString())
+            println "Wrote $it"
+        }
+    }
+}
