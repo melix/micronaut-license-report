@@ -2,8 +2,8 @@
 .gradle
 
 # Ignore Gradle build output directory
-build
-buildSrc/build
+/build/
+/buildSrc/build/
 
 # Ignore checkout directory
 checkouts
