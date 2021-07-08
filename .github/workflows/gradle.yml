@@ -20,6 +20,7 @@ jobs:
         with:
           wrapper-cache-enabled: true
           dependencies-cache-enabled: true
+          configuration-cache-enabled: true
           arguments: licenseReportZip
       - uses: actions/upload-artifact@v2
         with:
