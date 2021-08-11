@@ -118,6 +118,7 @@ abstract class ReportAggregator extends DefaultTask {
 }
 
 abstract class LicenseReportText extends DefaultTask {
+    private static final String NOT_FOUND = "License unavailable"
 
     private static final Map<String, String> URL_CACHE = [:].withDefault { key ->
         HttpURLConnection connection = new URL(key).openConnection()
@@ -206,16 +207,21 @@ abstract class LicenseReportText extends DefaultTask {
                     } else {
                         tentativeLicense = tryFetchLicense(connection)
                     }
-                    if (!tentativeLicense) {
+                    if (!tentativeLicense || tentativeLicense == NOT_FOUND) {
                         tentativeLicense = xml.licenses.license.url*.text().join(" ")
                     }
                 }
             }
-            return tentativeLicense ?: "License unavailable"
+            result.components
+                    .findAll { it instanceof UnresolvedComponentResult }
+                    .each {
+                        ((UnresolvedComponentResult)it).failure.printStackTrace()
+                    }
+            return tentativeLicense ?: NOT_FOUND
         } catch (e) {
             println "Unexpected error while processing $componentId"
             e.printStackTrace()
-            return "License unavailable"
+            return NOT_FOUND
         }
     }
 
