@@ -1,10 +1,8 @@
 package io.micronaut.build
 
-import org.eclipse.jgit.api.Git
 import org.gradle.api.file.Directory
 import org.gradle.api.file.ProjectLayout
 import org.gradle.api.file.RegularFile
-import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskContainer
 import java.io.File
 import javax.inject.Inject
@@ -33,7 +31,7 @@ abstract class LicenseExtension(@Inject val initScript: RegularFile) {
         description = "Generates license report for project ${projectDir.usableName}"
         initScript.set(this@LicenseExtension.initScript)
         projectDirectory.set(projectDir)
-        reportFile.set(layout.buildDirectory.file("reports/reportFor${projectDir.usableName}/report.json"))
+        reportDirectory.set(layout.buildDirectory.dir("reports/reportFor${projectDir.usableName}"))
     }
 
     private val String.checkoutDir: String

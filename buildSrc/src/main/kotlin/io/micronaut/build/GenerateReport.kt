@@ -3,10 +3,7 @@ package io.micronaut.build
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.tasks.InputDirectory
-import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.*
 import org.gradle.tooling.GradleConnector
 import java.io.File
 
@@ -17,8 +14,8 @@ abstract class GenerateReport : DefaultTask() {
     @get:InputDirectory
     abstract val projectDirectory: DirectoryProperty
 
-    @get:OutputFile
-    abstract val reportFile: RegularFileProperty
+    @get:OutputDirectory
+    abstract val reportDirectory: DirectoryProperty
 
     @TaskAction
     fun report() {
@@ -30,8 +27,8 @@ abstract class GenerateReport : DefaultTask() {
                     .forProjectDirectory(projectDir)
                     .connect().use {
                         it.newBuild()
-                                .withArguments("-I", initScriptPath, "--continue")
-                                .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport")
+                                .withArguments("-I", initScriptPath, "--continue", "--parallel")
+                                .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText")
                                 .setStandardOutput(System.out)
                                 .setStandardError(System.err)
                                 .run()
@@ -40,13 +37,22 @@ abstract class GenerateReport : DefaultTask() {
             // We intentionally ignore the status of the build result
             System.err.println(e.message)
         }
-        reportFile.get().asFile.run {
-            parentFile.mkdirs()
+        reportDirectory.get().asFile.run {
+            mkdirs()
             val reportFile = File(projectDir, "build/reports/licenseReport/report.json")
+            val targetJson = File(this, "report.json")
             if (reportFile.exists()) {
-                writeText(reportFile.readText())
+                targetJson.writeText(reportFile.readText())
             } else {
-                delete()
+                targetJson.delete()
+            }
+            val textReports = File(projectDir, "build/licenses")
+            if (textReports.exists()) {
+                textReports.listFiles()
+                        .filter { it.name.endsWith(".txt") }
+                        .forEach {
+                            File(this, it.name).writeText(it.readText())
+                        }
             }
         }
     }

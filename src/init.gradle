@@ -25,20 +25,30 @@ rootProject {
 
     allprojects {
         pluginManager.withPlugin('java') {
-            def singleReport = tasks.register("generateLicense", com.github.vlsi.gradle.license.GatherLicenseTask) {
-                configurations.set([project.configurations.runtimeClasspath])
-                SpdxLicense.values().each {
-                    ignoreMissingLicenseFor(it)
-                }
-            }
-            aggregator.configure {
+            pluginManager.withPlugin('maven-publish') {
+                publishing {
+                    publications.withType(MavenPublication).configureEach { pub ->
+                        def singleReport = tasks.register("generateLicense", com.github.vlsi.gradle.license.GatherLicenseTask) {
+                            configurations.set([project.configurations.runtimeClasspath])
+                            SpdxLicense.values().each {
+                                ignoreMissingLicenseFor(it)
+                            }
+                        }
+                        aggregator.configure {
 //                dependsOn(singleReport)
-                mustRunAfter(singleReport)
-                reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
+                            mustRunAfter(singleReport)
+                            reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
+                        }
+                        tasks.register("licenseReportText", LicenseReportText) {
+                            mustRunAfter(singleReport)
+                            xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
+                            textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
+                        }
+                    }
+                }
             }
         }
     }
-
 }
 
 abstract class ReportAggregator extends DefaultTask {
@@ -67,7 +77,6 @@ abstract class ReportAggregator extends DefaultTask {
         }
         reports.files.each {
             if (it.exists()) {
-                println "Parsing $it"
                 def xml = new XmlSlurper()
                         .parse(it)
                 xml.components.component.each {
@@ -92,7 +101,7 @@ abstract class ReportAggregator extends DefaultTask {
         def json = new StringWriter()
         new StreamingJsonBuilder(json).with { writer ->
             writer(
-                    licenses: perLicense.collect {id, components ->
+                    licenses: perLicense.collect { id, components ->
                         [license: [name: id, components: components]]
                     },
                     components: perComponent.collect { id, licenses ->
@@ -105,5 +114,189 @@ abstract class ReportAggregator extends DefaultTask {
             it.text = JsonOutput.prettyPrint(json.toString())
             println "Wrote $it"
         }
+    }
+}
+
+abstract class LicenseReportText extends DefaultTask {
+
+    private static final Map<String, String> URL_CACHE = [:].withDefault { key ->
+        HttpURLConnection connection = new URL(key).openConnection()
+        connection.requestMethod = 'GET'
+        if (connection.responseCode == 200) {
+            return connection.inputStream.text
+        }
+        return ""
+    }
+
+    @InputFile
+    abstract RegularFileProperty getXmlReport()
+
+    @OutputFile
+    abstract RegularFileProperty getTextReport()
+
+    static String tryFetchLicense(String connection) {
+        if (!connection) {
+            return
+        }
+        String baseUri = null
+        def idx = connection.indexOf("http://bitbucket.org/")
+        if (idx == -1) {
+            idx = connection.indexOf("https://bitbucket.org/")
+        }
+        if (idx == -1) {
+            idx = connection.indexOf("https://gitlab.ow2.org/")
+        }
+        if (idx > 0) {
+            baseUri = "${connection.substring(idx).replace('http:', 'https:')}/raw/master"
+        } else {
+            idx = connection.indexOf("github.com")
+            if (idx > 0) {
+                String path = connection.substring(idx + 10).replaceAll(':', '/') - ".git"
+                baseUri = "https://raw.githubusercontent.com/$path/master"
+            }
+        }
+
+        if (baseUri) {
+            String result = tryManyLicenses(baseUri)
+            if (result) {
+                return result
+            }
+        } else {
+            println("Unknown connection -> $connection")
+        }
+        return ""
+    }
+
+    private static String tryManyLicenses(String baseUri) {
+        StringBuilder sb = new StringBuilder()
+        [["LICENSE", "NOTICE", "COPYRIGHT"], ["", "md", "txt"]].combinations().each { f, ext ->
+            def fn = ext ? "${f}.${ext}" : f
+            def txt = URL_CACHE.get("${baseUri}/${fn}")
+            if (txt) {
+                sb.append("${fn}\n")
+                sb.append("-" * fn.length()).append("\n")
+                sb.append(txt)
+            }
+        }
+        return sb.toString()
+    }
+
+    String fetchLicenseTextFromRepo(String componentId) {
+        try {
+            def (String g, String a, String v) = componentId.split(':')
+            def result = project.dependencies.createArtifactResolutionQuery()
+                    .forModule(g, a, v)
+                    .withArtifacts(MavenModule, MavenPomArtifact)
+                    .execute()
+            def tentativeLicense = null
+            result.resolvedComponents.each {
+                it.getArtifacts(MavenPomArtifact).each {
+                    if (tentativeLicense) {
+                        return
+                    }
+                    def xmlFile = it.file
+                    def xml = new XmlSlurper().parse(xmlFile)
+                    def connection = xml.scm.connection ? xml.scm.connection[0].text() : ""
+                    if (!connection) {
+                        // Let's see if we can get it from the parent pom
+                        if (xml.'parent'.groupId.text()) {
+                            def parentPom = "${xml.'parent'.groupId.text()}:${xml.'parent'.artifactId.text()}:${xml.'parent'.version.text()}"
+                            tentativeLicense = fetchLicenseTextFromRepo(parentPom)
+                        }
+                    } else {
+                        tentativeLicense = tryFetchLicense(connection)
+                    }
+                    if (!tentativeLicense) {
+                        tentativeLicense = xml.licenses.license.url*.text().join(" ")
+                    }
+                }
+            }
+            return tentativeLicense ?: "License unavailable"
+        } catch (e) {
+            println "Unexpected error while processing $componentId"
+            e.printStackTrace()
+            return "License unavailable"
+        }
+    }
+
+    @TaskAction
+    void execute() {
+        def xmlFile = xmlReport.get().asFile
+        def txtFile = textReport.get().asFile
+        txtFile.withWriter { writer ->
+            def baseDir = xmlFile.parentFile.toPath()
+            def xml = new XmlSlurper()
+                    .parse(xmlFile)
+            def registerLicense = { id, node ->
+                def lic = node.@id.text() ?: node.@name.text() ?: node.text() ?: null
+                def uri
+                if (lic) {
+                    uri = node.@uri.text() ?: fetchLicenseTextFromRepo(id)
+                    writer.println("$lic: $uri")
+                }
+            }
+            // At the top of the file we put a list of all dependencies
+            def components = []
+            xml.components.component.each {
+                def id = it.@id.text()
+                if (id.startsWith('io.micronaut')) {
+                    // skip this component
+                    return
+                }
+                components << id
+            }
+            components = components.sort()
+            components.each {
+                writer.println(it)
+            }
+            writer.println()
+            writer.println("LICENSES LIST")
+            writer.println("-------------")
+
+            // Then licenses for each component
+            // also sorted
+            components.each { compId ->
+                xml.components.component.each {
+                    def id = it.@id.text()
+                    if (id != compId) {
+                        return
+                    }
+                    def path = it.@licenseFiles.text()
+                    writer.println(id)
+                    boolean hasLicenses = false
+                    if (path) {
+                        def licenses = baseDir.resolve(path).toFile()
+                        if (licenses.exists()) {
+                            licenses.listFiles().each {
+                                hasLicenses = true
+                                writer.println(it.name)
+                                writer.println("-" * (it.name.length()))
+                                writer.println(it.text)
+                            }
+                        }
+                        writer.println()
+                    }
+                    if (!hasLicenses) {
+                        it.'license-expression'.each { expr ->
+                            expr.license.each {
+                                registerLicense(id, it)
+                            }
+                            expr.and.license.each {
+                                registerLicense(id, it)
+                            }
+                            expr.or.license.each {
+                                registerLicense(id, it)
+                            }
+                            expr.expression.each {
+                                registerLicense(id, it)
+                            }
+                        }
+                        writer.println()
+                    }
+                }
+
+            }
+        }
+        println "Wrote $txtFile"
     }
 }
