@@ -129,13 +129,15 @@ abstract class LicenseReportText extends DefaultTask {
         return ""
     }
 
+    private Map<String, String> licenseToComponent = [:]
+
     @InputFile
     abstract RegularFileProperty getXmlReport()
 
     @OutputFile
     abstract RegularFileProperty getTextReport()
 
-    static String tryFetchLicense(String connection) {
+    String tryFetchLicense(String connection, String fromComponent) {
         if (!connection) {
             return
         }
@@ -158,7 +160,7 @@ abstract class LicenseReportText extends DefaultTask {
         }
 
         if (baseUri) {
-            String result = tryManyLicenses(baseUri)
+            String result = tryManyLicenses(baseUri, fromComponent)
             if (result) {
                 return result
             }
@@ -168,7 +170,17 @@ abstract class LicenseReportText extends DefaultTask {
         return ""
     }
 
-    private static String tryManyLicenses(String baseUri) {
+    String deduplicate(String licenseText, String fromComponent) {
+        String normalized = licenseText.trim()
+        String cid = licenseToComponent[normalized]
+        if (cid) {
+            return "Same as $cid"
+        }
+        licenseToComponent[normalized] = fromComponent
+        licenseText
+    }
+
+    String tryManyLicenses(String baseUri, String fromComponent) {
         StringBuilder sb = new StringBuilder()
         [["LICENSE", "NOTICE", "COPYRIGHT"], ["", "md", "txt"]].combinations().each { f, ext ->
             def fn = ext ? "${f}.${ext}" : f
@@ -176,7 +188,7 @@ abstract class LicenseReportText extends DefaultTask {
             if (txt) {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
-                sb.append(txt)
+                sb.append(deduplicate(txt, fromComponent))
             }
         }
         return sb.toString()
@@ -205,7 +217,7 @@ abstract class LicenseReportText extends DefaultTask {
                             tentativeLicense = fetchLicenseTextFromRepo(parentPom)
                         }
                     } else {
-                        tentativeLicense = tryFetchLicense(connection)
+                        tentativeLicense = tryFetchLicense(connection, "$g:$a:$v")
                     }
                     if (!tentativeLicense || tentativeLicense == NOT_FOUND) {
                         tentativeLicense = xml.licenses.license.url*.text().join(" ")
@@ -263,12 +275,13 @@ abstract class LicenseReportText extends DefaultTask {
             // also sorted
             components.each { compId ->
                 xml.components.component.each {
-                    def id = it.@id.text()
+                    String id = it.@id.text()
                     if (id != compId) {
                         return
                     }
                     def path = it.@licenseFiles.text()
                     writer.println(id)
+                    writer.println('=' * id.length())
                     boolean hasLicenses = false
                     if (path) {
                         def licenses = baseDir.resolve(path).toFile()
@@ -277,7 +290,7 @@ abstract class LicenseReportText extends DefaultTask {
                                 hasLicenses = true
                                 writer.println(it.name)
                                 writer.println("-" * (it.name.length()))
-                                writer.println(it.text)
+                                writer.println(deduplicate(it.text, id))
                             }
                         }
                         writer.println()
