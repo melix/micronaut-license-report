@@ -4,7 +4,7 @@ plugins {
 
 licenseReports {
     listOf(
-            "micronaut-core@3.0.x",
+            "micronaut-core@3.3.x",
             "micronaut-rxjava3",
             "micronaut-docs",
             "micronaut-reactor",
@@ -31,6 +31,8 @@ licenseReports {
             "micronaut-discovery-client",
             "micronaut-pulsar",
             "micronaut-azure",
+            "micronaut-aot",
+            "micronaut-serialization",
             "micronaut-spring",
             "micronaut-test",
             "micronaut-mqtt",
