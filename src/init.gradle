@@ -1,7 +1,14 @@
 import com.github.vlsi.gradle.license.api.*
 import groovy.json.JsonOutput
 import groovy.json.StreamingJsonBuilder
+import groovy.xml.DOMBuilder
 import groovy.xml.XmlSlurper
+
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.transform.OutputKeys
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
 
 initscript {
     repositories {
@@ -20,7 +27,12 @@ initscript {
 rootProject {
 
     def aggregator = rootProject.tasks.register("licenseReport", ReportAggregator) {
-        aggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
+        jsonAggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
+        mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
+    }
+    def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
+        xmlReport = aggregator.flatMap(r -> r.mergedXMLReport)
+        textReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
     }
 
     allprojects {
@@ -56,10 +68,49 @@ abstract class ReportAggregator extends DefaultTask {
     abstract ConfigurableFileCollection getReports()
 
     @OutputFile
-    abstract RegularFileProperty getAggregatedReport()
+    abstract RegularFileProperty getJsonAggregatedReport()
+
+    @OutputFile
+    abstract RegularFileProperty getMergedXMLReport()
 
     @TaskAction
     void execute() {
+        writeJsonReport()
+        mergeXMLReports()
+    }
+
+    private void mergeXMLReports() {
+        def factory = DocumentBuilderFactory.newInstance()
+        def builder = factory.newDocumentBuilder()
+        def doc = builder.newDocument()
+        def root = doc.createElement("license-list")
+        doc.appendChild(root)
+        root.setAttribute("version", "1")
+        def componentsNode = root.appendChild(doc.createElement("components"))
+        reports.files.each {
+            if (it.exists()) {
+                def dom = DOMBuilder.newInstance().parseText(it.text)
+                dom.getElementsByTagName("component").each {
+                    def imported = doc.importNode(it, true)
+                    componentsNode.appendChild(imported)
+                }
+            }
+        }
+
+        def transformerFactory = TransformerFactory.newInstance()
+        def trn = transformerFactory.newTransformer()
+
+        trn.setOutputProperty(OutputKeys.ENCODING, "UTF-8")
+        trn.setOutputProperty(OutputKeys.INDENT, "yes")
+        trn.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4")
+
+        def file = new StreamResult(mergedXMLReport.get().asFile)
+
+        trn.transform(new DOMSource(doc), file)
+
+    }
+
+    private void writeJsonReport() {
         def perComponent = [:].withDefault {
             [] as Set
         }
@@ -109,7 +160,7 @@ abstract class ReportAggregator extends DefaultTask {
                     },
             )
         }
-        aggregatedReport.get().asFile.with {
+        jsonAggregatedReport.get().asFile.with {
             it.parentFile.mkdirs()
             it.text = JsonOutput.prettyPrint(json.toString())
             println "Wrote $it"
@@ -118,16 +169,17 @@ abstract class ReportAggregator extends DefaultTask {
 }
 
 abstract class LicenseReportText extends DefaultTask {
+    public static final String LICENSE_LIST_HEADER = "LICENSES LIST"
     private static final String NOT_FOUND = "License unavailable"
 
-    private static final Map<String, String> URL_CACHE = [:].withDefault { key ->
+    private static final Map<String, String> URL_CACHE = Collections.synchronizedMap([:].withDefault { key ->
         HttpURLConnection connection = new URL(key).openConnection()
         connection.requestMethod = 'GET'
         if (connection.responseCode == 200) {
             return connection.inputStream.text
         }
         return ""
-    }
+    })
 
     private Map<String, String> licenseToComponent = [:]
 
@@ -227,7 +279,7 @@ abstract class LicenseReportText extends DefaultTask {
             result.components
                     .findAll { it instanceof UnresolvedComponentResult }
                     .each {
-                        ((UnresolvedComponentResult)it).failure.printStackTrace()
+                        ((UnresolvedComponentResult) it).failure.printStackTrace()
                     }
             return tentativeLicense ?: NOT_FOUND
         } catch (e) {
@@ -254,7 +306,7 @@ abstract class LicenseReportText extends DefaultTask {
                 }
             }
             // At the top of the file we put a list of all dependencies
-            def components = []
+            def components = [] as LinkedHashSet
             xml.components.component.each {
                 def id = it.@id.text()
                 if (id.startsWith('io.micronaut')) {
@@ -268,7 +320,7 @@ abstract class LicenseReportText extends DefaultTask {
                 writer.println(it)
             }
             writer.println()
-            writer.println("LICENSES LIST")
+            writer.println(LICENSE_LIST_HEADER)
             writer.println("-------------")
 
             // Then licenses for each component

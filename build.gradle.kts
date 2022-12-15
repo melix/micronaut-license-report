@@ -4,7 +4,7 @@ plugins {
 
 licenseReports {
     listOf(
-            "micronaut-core@3.3.x",
+            "micronaut-core@3.7.x",
             "micronaut-rxjava3",
             "micronaut-docs",
             "micronaut-reactor",
@@ -62,7 +62,9 @@ licenseReports {
             "micronaut-maven-plugin",
             "micronaut-camel",
             "micronaut-build-plugins",
-    ).map {
+    ).filter {
+      it.contains("micronaut-core")
+    }.map {
         val (name, branch) = if (it.contains('@')) {
             it.split('@')
         } else {

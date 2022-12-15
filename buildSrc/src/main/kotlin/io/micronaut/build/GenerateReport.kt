@@ -27,8 +27,8 @@ abstract class GenerateReport : DefaultTask() {
                     .forProjectDirectory(projectDir)
                     .connect().use {
                         it.newBuild()
-                                .withArguments("-I", initScriptPath, "--continue", "--parallel")
-                                .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText")
+                                .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache")
+                                .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
                                 .setStandardOutput(System.out)
                                 .setStandardError(System.err)
                                 .run()
