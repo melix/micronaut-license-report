@@ -24,6 +24,7 @@ abstract class LicenseExtension(@Inject val initScript: RegularFile) {
         reportTask.configure {
             projectDirectory.set(checkoutTask.map { it.repoDirectory.get() })
         }
+        createCleanupGitRepoTask(checkoutDir)
     }
 
     fun report(projectDir: File) = tasks.register("reportFor${projectDir.usableName}", GenerateReport::class.java) {
@@ -32,6 +33,10 @@ abstract class LicenseExtension(@Inject val initScript: RegularFile) {
         initScript.set(this@LicenseExtension.initScript)
         projectDirectory.set(projectDir)
         reportDirectory.set(layout.buildDirectory.dir("reports/reportFor${projectDir.usableName}"))
+    }
+
+    fun createCleanupGitRepoTask(checkoutDir: Directory)  = tasks.register("cleanup${checkoutDir.asFile.usableName}", CleanupGitRepoTask::class.java) {
+        this.repoDirectory.set(checkoutDir)
     }
 
     private val String.checkoutDir: String
