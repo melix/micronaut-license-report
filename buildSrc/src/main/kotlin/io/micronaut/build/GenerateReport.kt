@@ -3,6 +3,7 @@ package io.micronaut.build
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 import org.gradle.tooling.GradleConnector
 import java.io.File
@@ -17,6 +18,9 @@ abstract class GenerateReport : DefaultTask() {
     @get:OutputDirectory
     abstract val reportDirectory: DirectoryProperty
 
+    @get:Input
+    abstract val includeMicronautModules: Property<Boolean>
+
     @TaskAction
     fun report() {
         val initScriptPath = initScript.get().asFile.absolutePath
@@ -26,12 +30,12 @@ abstract class GenerateReport : DefaultTask() {
             GradleConnector.newConnector()
                     .forProjectDirectory(projectDir)
                     .connect().use {
-                        it.newBuild()
-                                .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache")
-                                .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
-                                .setStandardOutput(System.out)
-                                .setStandardError(System.err)
-                                .run()
+                    it.newBuild()
+                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules.get())
+                        .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
+                        .setStandardOutput(System.out)
+                        .setStandardError(System.err)
+                        .run()
                     }
         } catch (e: Exception) {
             // We intentionally ignore the status of the build result

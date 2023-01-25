@@ -1,6 +1,7 @@
 package io.micronaut.build
 
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.util.FileUtils
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.Property
@@ -19,9 +20,17 @@ abstract class GitRepoTask : DefaultTask() {
     @get:Input
     abstract val branch: Property<String>
 
+    @get:Input
+    abstract val cleanupGitRepo: Property<Boolean>
+
     @TaskAction
     fun doGit() {
         val repoDir = repoDirectory.get().asFile
+        if (cleanupGitRepo.get()
+            && repoDir.exists() && File(repoDir, ".git").exists()) {
+            println("Deleting ${repoDirectory.get()}")
+            FileUtils.delete(repoDir, 1)
+        }
         if (repoDir.exists() && File(repoDir, ".git").exists()) {
             println("Updating ${uri.get()}")
             Git.open(repoDir)

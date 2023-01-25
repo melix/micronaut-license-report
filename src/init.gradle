@@ -33,6 +33,7 @@ rootProject {
     def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
         xmlReport = aggregator.flatMap(r -> r.mergedXMLReport)
         textReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
+        includeMicronautModules.set("true".equals(project.findProperty("includeMicronautModules") ?: "false"))
     }
 
     allprojects {
@@ -55,6 +56,7 @@ rootProject {
                             mustRunAfter(singleReport)
                             xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
+                            includeMicronautModules.set("true".equals(project.findProperty("includeMicronautModules") ?: "false"))
                         }
                     }
                 }
@@ -189,6 +191,9 @@ abstract class LicenseReportText extends DefaultTask {
     @OutputFile
     abstract RegularFileProperty getTextReport()
 
+    @Input
+    abstract Property<Boolean> getIncludeMicronautModules()
+
     String tryFetchLicense(String connection, String fromComponent) {
         if (!connection) {
             return
@@ -309,7 +314,7 @@ abstract class LicenseReportText extends DefaultTask {
             def components = [] as LinkedHashSet
             xml.components.component.each {
                 def id = it.@id.text()
-                if (id.startsWith('io.micronaut')) {
+                if (!includeMicronautModules.get() && id.startsWith('io.micronaut')) {
                     // skip this component
                     return
                 }
