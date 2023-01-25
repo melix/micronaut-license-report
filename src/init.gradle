@@ -171,6 +171,9 @@ abstract class ReportAggregator extends DefaultTask {
 abstract class LicenseReportText extends DefaultTask {
     public static final String LICENSE_LIST_HEADER = "LICENSES LIST"
     private static final String NOT_FOUND = "License unavailable"
+    private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
+    private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "NOTICE", "COPYRIGHT"]
+    private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
 
     private static final Map<String, String> URL_CACHE = Collections.synchronizedMap([:].withDefault { key ->
         HttpURLConnection connection = new URL(key).openConnection()
@@ -234,13 +237,13 @@ abstract class LicenseReportText extends DefaultTask {
 
     String tryManyLicenses(String baseUri, String fromComponent) {
         StringBuilder sb = new StringBuilder()
-        [["LICENSE", "NOTICE", "COPYRIGHT"], ["", "md", "txt"]].combinations().each { f, ext ->
+        [LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
             def fn = ext ? "${f}.${ext}" : f
-            def txt = URL_CACHE.get("${baseUri}/${fn}")
+            def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
             if (txt) {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
-                sb.append(deduplicate(txt, fromComponent))
+                sb.append(deduplicate(txt, fromComponent)).append("\n\n")
             }
         }
         return sb.toString()
@@ -301,8 +304,14 @@ abstract class LicenseReportText extends DefaultTask {
                 def lic = node.@id.text() ?: node.@name.text() ?: node.text() ?: null
                 def uri
                 if (lic) {
-                    uri = node.@uri.text() ?: fetchLicenseTextFromRepo(id)
-                    writer.println("$lic: $uri")
+                    uri = node.@uri.text()
+                    if (uri) {
+                        writer.println("$lic: $uri")
+                        writer.println()
+                    } else {
+                        def licenseText = fetchLicenseTextFromRepo(id)
+                        writer.println("$lic: $licenseText")
+                    }
                 }
             }
             // At the top of the file we put a list of all dependencies
@@ -362,7 +371,6 @@ abstract class LicenseReportText extends DefaultTask {
                                 registerLicense(id, it)
                             }
                         }
-                        writer.println()
                     }
                 }
 
