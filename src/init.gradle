@@ -26,6 +26,7 @@ initscript {
 
 rootProject {
 
+    def includeMicronautModulesProperty = providers.gradleProperty("includeMicronautModules").map(String::toBoolean).getOrElse(false)
     def aggregator = rootProject.tasks.register("licenseReport", ReportAggregator) {
         jsonAggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
         mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
@@ -33,7 +34,7 @@ rootProject {
     def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
         xmlReport = aggregator.flatMap(r -> r.mergedXMLReport)
         textReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
-        includeMicronautModules.set("true".equals(project.findProperty("includeMicronautModules") ?: "false"))
+        includeMicronautModules.set(includeMicronautModulesProperty)
     }
 
     allprojects {
@@ -56,7 +57,7 @@ rootProject {
                             mustRunAfter(singleReport)
                             xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
-                            includeMicronautModules.set("true".equals(project.findProperty("includeMicronautModules") ?: "false"))
+                            includeMicronautModules.set(includeMicronautModulesProperty)
                         }
                     }
                 }
