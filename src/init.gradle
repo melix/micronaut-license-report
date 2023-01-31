@@ -347,8 +347,13 @@ abstract class LicenseReportText extends DefaultTask {
                         return
                     }
                     def path = it.@licenseFiles.text()
-                    writer.println(id)
-                    writer.println('=' * id.length())
+                    def idForDisplay = id
+                    def lastIndexColon = id.lastIndexOf(":")
+                    if (lastIndexColon != -1) {
+                        idForDisplay = id.substring(0, lastIndexColon)
+                    }
+                    writer.println(idForDisplay)
+                    writer.println('=' * idForDisplay.length())
                     boolean hasLicenses = false
                     if (path) {
                         def licenses = baseDir.resolve(path).toFile()
