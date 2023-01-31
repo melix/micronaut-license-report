@@ -235,10 +235,19 @@ abstract class LicenseReportText extends DefaultTask {
         String normalized = licenseText.trim()
         String cid = licenseToComponent[normalized]
         if (cid) {
-            return "Same as $cid"
+            return "Same as " + removeVersion(cid)
         }
         licenseToComponent[normalized] = fromComponent
         licenseText
+    }
+
+    String removeVersion(String componentId) {
+        def idForDisplay = componentId
+        def lastIndexColon = componentId.lastIndexOf(":")
+        if (lastIndexColon != -1) {
+            idForDisplay = componentId.substring(0, lastIndexColon)
+        }
+        idForDisplay
     }
 
     String tryManyLicenses(String baseUri, String fromComponent) {
@@ -347,11 +356,7 @@ abstract class LicenseReportText extends DefaultTask {
                         return
                     }
                     def path = it.@licenseFiles.text()
-                    def idForDisplay = id
-                    def lastIndexColon = id.lastIndexOf(":")
-                    if (lastIndexColon != -1) {
-                        idForDisplay = id.substring(0, lastIndexColon)
-                    }
+                    def idForDisplay = removeVersion(id)
                     writer.println(idForDisplay)
                     writer.println('=' * idForDisplay.length())
                     boolean hasLicenses = false
