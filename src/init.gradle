@@ -3,7 +3,6 @@ import groovy.json.JsonOutput
 import groovy.json.StreamingJsonBuilder
 import groovy.xml.DOMBuilder
 import groovy.xml.XmlSlurper
-import groovyjarjarantlr.collections.List
 
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.OutputKeys
