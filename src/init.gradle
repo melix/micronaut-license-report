@@ -203,7 +203,6 @@ abstract class LicenseReportText extends DefaultTask {
         if (!connection) {
             return
         }
-        println("Connection: " + connection)
         String baseUri = null
         def idx = connection.indexOf("http://bitbucket.org/")
         if (idx == -1) {
@@ -228,7 +227,6 @@ abstract class LicenseReportText extends DefaultTask {
                 return result
             }
         } else {
-            println("From component: " + fromComponent)
             println("Unknown connection -> $connection")
         }
         return ""
