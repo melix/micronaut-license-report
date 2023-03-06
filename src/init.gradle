@@ -3,6 +3,7 @@ import groovy.json.JsonOutput
 import groovy.json.StreamingJsonBuilder
 import groovy.xml.DOMBuilder
 import groovy.xml.XmlSlurper
+import org.gradle.internal.impldep.com.google.api.client.json.Json
 
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.OutputKeys
@@ -210,7 +211,16 @@ abstract class LicenseReportText extends DefaultTask {
         if (idx == -1) {
             idx = connection.indexOf("https://gitlab.ow2.org/")
         }
-        if (idx > 0) {
+        if(idx == -1){
+            idx = connection.indexOf("http://gitbox.apache.org/")
+            if(idx != -1) {
+                //Changing the source site from gitbox to github by getting the name of the module from the connection,
+                // as it is easier to work with than gitbox
+                String path = "apache/" + connection.tokenize('/').last() - ".git"
+                baseUri = "https://raw.githubusercontent.com/$path/master"
+            }
+        }
+        if (idx > 0 && baseUri == null) {
             baseUri = "${connection.substring(idx).replace('http:', 'https:')}/raw/master"
         } else {
             idx = connection.indexOf("github.com")
