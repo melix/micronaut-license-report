@@ -307,6 +307,19 @@ abstract class LicenseReportText extends DefaultTask {
         }
     }
 
+    File[] findLicensesInDir(File licenseFile){
+        def licenseFiles = []
+        if(!licenseFile.isDirectory())
+            licenseFiles << licenseFile
+        else {
+            licenseFile.eachFileRecurse { File file ->
+                if (!file.isDirectory() && file.name.toUpperCase().startsWithAny(LICENSE_FILE_NAMES))
+                    licenseFiles << file
+            }
+        }
+        return licenseFiles
+    }
+
     @TaskAction
     void execute() {
         def xmlFile = xmlReport.get().asFile
@@ -364,10 +377,17 @@ abstract class LicenseReportText extends DefaultTask {
                         def licenses = baseDir.resolve(path).toFile()
                         if (licenses.exists()) {
                             licenses.listFiles().each {
+                                //If the directory in which the licenses should be has subdirectories instead,
+                                //check whether the licenses are present in any of those subfolders
+                                def licFiles = findLicensesInDir(it).toList()
+                                if(licFiles.isEmpty())
+                                    return
                                 hasLicenses = true
-                                writer.println(it.name)
-                                writer.println("-" * (it.name.length()))
-                                writer.println(deduplicate(it.text, id))
+                                licFiles.each {File file ->
+                                    writer.println(file.name)
+                                    writer.println("-" * (file.name.length()))
+                                    writer.println(deduplicate(file.text, id))
+                                }
                             }
                         }
                         writer.println()
