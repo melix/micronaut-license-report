@@ -37,6 +37,10 @@ rootProject {
         includeMicronautModules.set(includeMicronautModulesProperty)
     }
 
+    def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
+        dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
+    }
+
     allprojects {
         pluginManager.withPlugin('java') {
             pluginManager.withPlugin('maven-publish') {
@@ -53,11 +57,15 @@ rootProject {
                             mustRunAfter(singleReport)
                             reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
                         }
-                        tasks.register("licenseReportText", LicenseReportText) {
+                        def licenseReportText = tasks.register("licenseReportText", LicenseReportText) {
                             mustRunAfter(singleReport)
                             xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             includeMicronautModules.set(includeMicronautModulesProperty)
+                        }
+                        tasks.register("dependencyTree", DependencyTree){
+                            mustRunAfter(licenseReportText)
+                            dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                         }
                     }
                 }
@@ -175,6 +183,7 @@ abstract class LicenseReportText extends DefaultTask {
     public static final String LICENSE_LIST_HEADER = "LICENSES LIST"
     private static final String NOT_FOUND = "License unavailable"
     private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
+    private static final String[] JACKSON_LICENSE_FILE_PATHS = ["yaml/src/main/resources/META-INF/", "datatypes/src/main/resources/META-INF/"]
     private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "NOTICE", "COPYRIGHT"]
     private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
 
@@ -259,8 +268,27 @@ abstract class LicenseReportText extends DefaultTask {
         idForDisplay
     }
 
+    StringBuilder tryManyLicensesJackson(String baseUri, String fromComponent, Set<String> licensesFound, StringBuilder sb){
+        if(fromComponent.contains("jackson-modules-java8"))
+            baseUri = baseUri - "/master" + "/2.15"
+        [JACKSON_LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
+            if(f in licensesFound)
+                return
+            def fn = ext ? "${f}.${ext}" : f
+            def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
+            if (txt) {
+                sb.append("${fn}\n")
+                sb.append("-" * fn.length()).append("\n")
+                sb.append(deduplicate(txt, fromComponent)).append("\n\n")
+                licensesFound.add(f)
+            }
+        }
+        return sb
+    }
+
     String tryManyLicenses(String baseUri, String fromComponent) {
         StringBuilder sb = new StringBuilder()
+        Set<String> licensesFound = []
         [LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
@@ -268,8 +296,11 @@ abstract class LicenseReportText extends DefaultTask {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
                 sb.append(deduplicate(txt, fromComponent)).append("\n\n")
+                licensesFound.add(f)
             }
         }
+        if(fromComponent.contains("jackson"))
+            sb = tryManyLicensesJackson(baseUri, fromComponent, licensesFound, sb)
         return sb.toString()
     }
 
@@ -422,5 +453,121 @@ abstract class LicenseReportText extends DefaultTask {
             }
         }
         println "Wrote $txtFile"
+    }
+}
+
+
+abstract class DependencyTree extends DefaultTask{
+
+    private static final String[] excludedDeps = ["jackson-annotations", "bom"]
+
+    @OutputFile
+    abstract RegularFileProperty getDependencyTreeReport()
+
+    void printDependencyTree(){
+        try {
+            Configuration config = project.getConfigurations().getByName("allCodeCoverageReportClassDirectories")
+            if (!config.isCanBeResolved()) {
+                println("Configuration allCodeCoverageReportClassDirectories could not be resolved")
+                return
+            }
+
+            ResolvedComponentResult root = config.getIncoming()
+                    .getResolutionResult()
+                    .getRoot();
+            Set<ComponentIdentifier> seen = []
+
+            StringBuilder sb = new StringBuilder()
+            sb = printDependencyTreePreorder(root, seen, 0, "", sb)
+            def seenSorted = seen.sort{it.displayName}
+
+            def depTreeFile = dependencyTreeReport.get().asFile
+            if(!depTreeFile.exists())
+                depTreeFile.createNewFile()
+
+            depTreeFile.withWriter {writer ->
+                seenSorted.each {compId ->
+                    if(!compId.displayName.toLowerCase().startsWith("project"))
+                    writer.println(compId.displayName)
+                }
+
+                writer.println()
+                writer.println("${config.name} - ${config.description}")
+                writer.println(sb.toString())
+            }
+        }catch(Exception e){
+            return
+        }
+    }
+
+    StringBuilder printDependencyTreePreorder(ResolvedComponentResult root,
+                                              Set<ComponentIdentifier> seen,
+                                              int depth,
+                                              String beforeComponent,
+                                              StringBuilder sb){
+
+        Set<DependencyResult> dependencies = root.getDependencies()
+        Set<ComponentIdentifier> seenBranch = []
+        sb = printDependency(root, beforeComponent, sb, false, depth, dependencies.isEmpty())
+        if(depth > 0 && !dependencies.isEmpty())
+            beforeComponent += "|   "
+
+        for(DependencyResult d: dependencies) {
+            if (!(d instanceof ResolvedDependencyResult)) {
+                sb.append(beforeComponent + "---- ")
+                sb.append("Unresolved dependency: " + d.toString() + "\n")
+                continue
+            }
+
+            ResolvedComponentResult dependencyComponent = ((ResolvedDependencyResult) d).getSelected()
+            ComponentIdentifier dependencyId = dependencyComponent.getId()
+
+            if(checkExcludedDeps(dependencyId))
+                continue
+
+            if(seen.add(dependencyId))
+                sb = printDependencyTreePreorder(dependencyComponent, seen, depth + 1, beforeComponent + "    ", sb)
+            else if(!seenBranch.contains(dependencyId))
+                sb = printDependency(dependencyComponent, beforeComponent + "    ", sb, true, depth, dependencies.isEmpty())
+
+            seenBranch.add(dependencyId)
+        }
+        return sb
+    }
+
+    boolean checkExcludedDeps(ComponentIdentifier dependencyId){
+        for(String exclusion in excludedDeps){
+            if(dependencyId.displayName.contains(exclusion))
+                return true
+        }
+        return false
+    }
+
+    StringBuilder printDependency(ResolvedComponentResult root,
+                                  String beforeComponent,
+                                  StringBuilder sb,
+                                  boolean alreadySeen,
+                                  int depth,
+                                  boolean emptyDependencies){
+
+        sb.append(beforeComponent)
+        if(depth > 0) {
+            if (emptyDependencies)
+                sb.append("/--- ")
+            else {
+                sb.append("+--- ")
+            }
+        }
+        sb.append(root.getId().getDisplayName())
+        if(alreadySeen == true) {
+            sb.append(" (*)")
+        }
+        sb.append("\n")
+        return sb
+    }
+
+    @TaskAction
+    void execute(){
+        printDependencyTree()
     }
 }

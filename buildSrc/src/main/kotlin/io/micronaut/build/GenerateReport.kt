@@ -35,7 +35,7 @@ abstract class GenerateReport : DefaultTask() {
                     .connect().use {
                     it.newBuild()
                         .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules)
-                        .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
+                        .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText", "licenseReportAggregatedText", "dependencyTree")
                         .setStandardOutput(System.out)
                         .setStandardError(System.err)
                         .run()
