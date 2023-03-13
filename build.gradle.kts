@@ -49,7 +49,7 @@ licenseReports {
             "micronaut-redis",
             "micronaut-problem-json",
             "micronaut-picocli",
-            "micronaut-openapi",
+            "micronaut-openapi@4.8.x",
             "micronaut-nats",
             "micronaut-multitenancy",
             "micronaut-jackson-xml",

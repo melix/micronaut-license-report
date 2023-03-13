@@ -58,12 +58,32 @@ rootProject {
                             xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             includeMicronautModules.set(includeMicronautModulesProperty)
+                            def modules = configurations.runtimeClasspath
+                                    .incoming
+                                    .resolutionResult
+                                    .allDependencies
+                                    .findAll { it instanceof ResolvedDependencyResult }
+                                    .collect { it.selected }
+                                    .findAll { it.id instanceof ProjectComponentIdentifier }
+                                    .collect { it.moduleVersion.toString() }
+                            aggregatedText.configure {
+                                micronautModules.addAll(modules)
+                            }
+                            micronautModules.set(modules)
                         }
                     }
                 }
             }
         }
     }
+}
+
+
+static String moduleNameOf(String name) {
+    if (name.startsWith("micronaut-")) {
+        return name
+    }
+    return "micronaut-$name"
 }
 
 abstract class ReportAggregator extends DefaultTask {
@@ -197,6 +217,17 @@ abstract class LicenseReportText extends DefaultTask {
 
     @Input
     abstract Property<Boolean> getIncludeMicronautModules()
+
+    @Optional
+    @Input
+    abstract SetProperty<String> getMicronautModules()
+
+    @Internal
+    abstract DirectoryProperty getRootDir()
+
+    LicenseReportText() {
+        rootDir.set(project.rootProject.layout.projectDirectory)
+    }
 
     String tryFetchLicense(String connection, String fromComponent) {
         if (!connection) {
@@ -353,6 +384,11 @@ abstract class LicenseReportText extends DefaultTask {
             }
             // At the top of the file we put a list of all dependencies
             def components = [] as LinkedHashSet
+            if (includeMicronautModules.get() && getMicronautModules().isPresent()) {
+                getMicronautModules().get().each {
+                    components << it
+                }
+            }
             xml.components.component.each {
                 def id = it.@id.text()
                 if (!includeMicronautModules.get() && id.startsWith('io.micronaut')) {
@@ -372,6 +408,21 @@ abstract class LicenseReportText extends DefaultTask {
             // Then licenses for each component
             // also sorted
             components.each { compId ->
+                if (compId.startsWith('io.micronaut')) {
+                    // special case because we know it'a AL2
+                    def idForDisplay = removeVersion(compId)
+                    writer.println(idForDisplay)
+                    writer.println('=' * idForDisplay.length())
+                    File licFile = rootDir.file("LICENSE").get().asFile
+                    if (licFile.exists()) {
+                        writer.println(licFile.name)
+                        writer.println("-" * (licFile.name.length()))
+                        writer.println(deduplicate(licFile.text, compId))
+                    } else {
+                        writer.println("LICENSE file not found")
+                    }
+                    return
+                }
                 xml.components.component.each {
                     String id = it.@id.text()
                     if (id != compId) {
