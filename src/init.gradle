@@ -38,6 +38,8 @@ rootProject {
     }
 
     def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
+        mustRunAfter(aggregatedText)
+        licenseReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
         dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
     }
 
@@ -62,9 +64,22 @@ rootProject {
                             xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             includeMicronautModules.set(includeMicronautModulesProperty)
+                            def modules = configurations.runtimeClasspath
+                                    .incoming
+                                    .resolutionResult
+                                    .allDependencies
+                                    .findAll { it instanceof ResolvedDependencyResult }
+                                    .collect { it.selected }
+                                    .findAll { it.id instanceof ProjectComponentIdentifier }
+                                    .collect { it.moduleVersion.toString() }
+                            aggregatedText.configure {
+                                micronautModules.addAll(modules)
+                            }
+                            micronautModules.set(modules)
                         }
                         tasks.register("dependencyTree", DependencyTree){
                             mustRunAfter(licenseReportText)
+                            licenseReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                         }
                     }
@@ -72,6 +87,14 @@ rootProject {
             }
         }
     }
+}
+
+
+static String moduleNameOf(String name) {
+    if (name.startsWith("micronaut-")) {
+        return name
+    }
+    return "micronaut-$name"
 }
 
 abstract class ReportAggregator extends DefaultTask {
@@ -183,7 +206,6 @@ abstract class LicenseReportText extends DefaultTask {
     public static final String LICENSE_LIST_HEADER = "LICENSES LIST"
     private static final String NOT_FOUND = "License unavailable"
     private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
-    private static final String[] JACKSON_LICENSE_FILE_PATHS = ["yaml/src/main/resources/META-INF/", "datatypes/src/main/resources/META-INF/"]
     private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "NOTICE", "COPYRIGHT"]
     private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
 
@@ -206,6 +228,17 @@ abstract class LicenseReportText extends DefaultTask {
 
     @Input
     abstract Property<Boolean> getIncludeMicronautModules()
+
+    @Optional
+    @Input
+    abstract SetProperty<String> getMicronautModules()
+
+    @Internal
+    abstract DirectoryProperty getRootDir()
+
+    LicenseReportText() {
+        rootDir.set(project.rootProject.layout.projectDirectory)
+    }
 
     String tryFetchLicense(String connection, String fromComponent) {
         if (!connection) {
@@ -268,27 +301,8 @@ abstract class LicenseReportText extends DefaultTask {
         idForDisplay
     }
 
-    StringBuilder tryManyLicensesJackson(String baseUri, String fromComponent, Set<String> licensesFound, StringBuilder sb){
-        if(fromComponent.contains("jackson-modules-java8"))
-            baseUri = baseUri - "/master" + "/2.15"
-        [JACKSON_LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
-            if(f in licensesFound)
-                return
-            def fn = ext ? "${f}.${ext}" : f
-            def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
-            if (txt) {
-                sb.append("${fn}\n")
-                sb.append("-" * fn.length()).append("\n")
-                sb.append(deduplicate(txt, fromComponent)).append("\n\n")
-                licensesFound.add(f)
-            }
-        }
-        return sb
-    }
-
     String tryManyLicenses(String baseUri, String fromComponent) {
         StringBuilder sb = new StringBuilder()
-        Set<String> licensesFound = []
         [LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
@@ -296,11 +310,8 @@ abstract class LicenseReportText extends DefaultTask {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
                 sb.append(deduplicate(txt, fromComponent)).append("\n\n")
-                licensesFound.add(f)
             }
         }
-        if(fromComponent.contains("jackson"))
-            sb = tryManyLicensesJackson(baseUri, fromComponent, licensesFound, sb)
         return sb.toString()
     }
 
@@ -384,6 +395,11 @@ abstract class LicenseReportText extends DefaultTask {
             }
             // At the top of the file we put a list of all dependencies
             def components = [] as LinkedHashSet
+            if (includeMicronautModules.get() && getMicronautModules().isPresent()) {
+                getMicronautModules().get().each {
+                    components << it
+                }
+            }
             xml.components.component.each {
                 def id = it.@id.text()
                 if (!includeMicronautModules.get() && id.startsWith('io.micronaut')) {
@@ -403,6 +419,21 @@ abstract class LicenseReportText extends DefaultTask {
             // Then licenses for each component
             // also sorted
             components.each { compId ->
+                if (compId.startsWith('io.micronaut')) {
+                    // special case because we know it'a AL2
+                    def idForDisplay = removeVersion(compId)
+                    writer.println(idForDisplay)
+                    writer.println('=' * idForDisplay.length())
+                    File licFile = rootDir.file("LICENSE").get().asFile
+                    if (licFile.exists()) {
+                        writer.println(licFile.name)
+                        writer.println("-" * (licFile.name.length()))
+                        writer.println(deduplicate(licFile.text, compId))
+                    } else {
+                        writer.println("LICENSE file not found")
+                    }
+                    return
+                }
                 xml.components.component.each {
                     String id = it.@id.text()
                     if (id != compId) {
@@ -460,13 +491,19 @@ abstract class LicenseReportText extends DefaultTask {
 abstract class DependencyTree extends DefaultTask{
 
     private static final String[] excludedDeps = ["jackson-annotations", "bom"]
+    private static final String[] configOptions = ["allCodeCoverageReportClassDirectories", "compileClasspath"]
+    private Set<String> usableDependencies = []
+
+    @InputFile
+    abstract RegularFileProperty getLicenseReport()
 
     @OutputFile
     abstract RegularFileProperty getDependencyTreeReport()
 
     void printDependencyTree(){
         try {
-            Configuration config = project.getConfigurations().getByName("allCodeCoverageReportClassDirectories")
+            Configuration config = findConfigForProject()
+
             if (!config.isCanBeResolved()) {
                 println("Configuration allCodeCoverageReportClassDirectories could not be resolved")
                 return
@@ -487,8 +524,8 @@ abstract class DependencyTree extends DefaultTask{
 
             depTreeFile.withWriter {writer ->
                 seenSorted.each {compId ->
-                    if(!compId.displayName.toLowerCase().startsWith("project"))
-                    writer.println(compId.displayName)
+                    if(!compId.displayName.trim().toLowerCase().startsWith("project"))
+                        writer.println(compId.displayName)
                 }
 
                 writer.println()
@@ -497,6 +534,43 @@ abstract class DependencyTree extends DefaultTask{
             }
         }catch(Exception e){
             return
+        }
+    }
+
+    Configuration findConfigForProject(){
+        Configuration config
+        for(String configName in configOptions){
+            config = tryConfiguration(configName)
+            if(config != null) {
+                getUsableDependencies(configName)
+                return config
+            }
+        }
+        return null
+    }
+
+    Configuration tryConfiguration(String configName){
+        try{
+            return project.getConfigurations().getByName(configName)
+        }catch(Exception e){
+            return null
+        }
+    }
+
+    void getUsableDependencies(String configName){
+        if(configName == "allCodeCoverageReportClassDirectories")
+            return
+
+        File licenseReportFile = licenseReport.get().asFile
+        if(!licenseReportFile.exists())
+            return
+
+        List<String> lines = licenseReportFile.readLines()
+        for(String line in lines){
+            line = line.trim()
+            if(line == "")
+                return
+            usableDependencies << line
         }
     }
 
@@ -522,7 +596,7 @@ abstract class DependencyTree extends DefaultTask{
             ResolvedComponentResult dependencyComponent = ((ResolvedDependencyResult) d).getSelected()
             ComponentIdentifier dependencyId = dependencyComponent.getId()
 
-            if(checkExcludedDeps(dependencyId))
+            if(checkExcludedDeps(dependencyId) || !checkUsableDeps(dependencyId))
                 continue
 
             if(seen.add(dependencyId))
@@ -540,6 +614,15 @@ abstract class DependencyTree extends DefaultTask{
             if(dependencyId.displayName.contains(exclusion))
                 return true
         }
+        return false
+    }
+
+    boolean checkUsableDeps(ComponentIdentifier dependencyId){
+        String dependencyDisplayName = dependencyId.displayName.trim()
+        if(usableDependencies.isEmpty())
+            return true
+        if(dependencyDisplayName.startsWith("project") || usableDependencies.contains(dependencyDisplayName))
+            return true
         return false
     }
 
