@@ -39,6 +39,10 @@ rootProject {
 
     def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
         mustRunAfter(aggregatedText)
+        Configuration config = project.getConfigurations().findByName("allCodeCoverageReportClassDirectories")
+        if(config == null)
+            config = project.getConfigurations().findByName("runtimeClasspath")
+        rootComponent = config.getIncoming().getResolutionResult().getRoot()
         licenseReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
         dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
     }
@@ -79,6 +83,11 @@ rootProject {
                         }
                         tasks.register("dependencyTree", DependencyTree){
                             mustRunAfter(licenseReportText)
+                            rootComponent = project.getConfigurations()
+                                    .findByName("runtimeClasspath")
+                                    .getIncoming()
+                                    .getResolutionResult()
+                                    .getRoot()
                             licenseReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                         }
@@ -491,8 +500,10 @@ abstract class LicenseReportText extends DefaultTask {
 abstract class DependencyTree extends DefaultTask{
 
     private static final String[] excludedDeps = ["jackson-annotations", "bom"]
-    private static final String[] configOptions = ["allCodeCoverageReportClassDirectories", "compileClasspath"]
     private Set<String> usableDependencies = []
+
+    @Input
+    abstract Property<ResolvedComponentResult> getRootComponent()
 
     @InputFile
     abstract RegularFileProperty getLicenseReport()
@@ -502,19 +513,18 @@ abstract class DependencyTree extends DefaultTask{
 
     void printDependencyTree(){
         try {
-            Configuration config = findConfigForProject()
+            ResolvedComponentResult root = getRootComponent().get()
+            Set<ComponentIdentifier> seen = []
 
-            if (!config.isCanBeResolved()) {
-                println("Configuration allCodeCoverageReportClassDirectories could not be resolved")
+            if(root == null){
+                println("Couldn't find the root for the given configuration")
                 return
             }
 
-            ResolvedComponentResult root = config.getIncoming()
-                    .getResolutionResult()
-                    .getRoot();
-            Set<ComponentIdentifier> seen = []
-
+            //getUsableDependencies("A")
+            seen.add(root.id)
             StringBuilder sb = new StringBuilder()
+
             sb = printDependencyTreePreorder(root, seen, 0, "", sb)
             def seenSorted = seen.sort{it.displayName}
 
@@ -529,31 +539,10 @@ abstract class DependencyTree extends DefaultTask{
                 }
 
                 writer.println()
-                writer.println("${config.name} - ${config.description}")
                 writer.println(sb.toString())
             }
         }catch(Exception e){
             return
-        }
-    }
-
-    Configuration findConfigForProject(){
-        Configuration config
-        for(String configName in configOptions){
-            config = tryConfiguration(configName)
-            if(config != null) {
-                getUsableDependencies(configName)
-                return config
-            }
-        }
-        return null
-    }
-
-    Configuration tryConfiguration(String configName){
-        try{
-            return project.getConfigurations().getByName(configName)
-        }catch(Exception e){
-            return null
         }
     }
 
@@ -596,13 +585,14 @@ abstract class DependencyTree extends DefaultTask{
             ResolvedComponentResult dependencyComponent = ((ResolvedDependencyResult) d).getSelected()
             ComponentIdentifier dependencyId = dependencyComponent.getId()
 
-            if(checkExcludedDeps(dependencyId) || !checkUsableDeps(dependencyId))
+            //if(checkExcludedDeps(dependencyId) || !checkUsableDeps(dependencyId))
+            if(checkExcludedDeps(dependencyId))
                 continue
 
             if(seen.add(dependencyId))
                 sb = printDependencyTreePreorder(dependencyComponent, seen, depth + 1, beforeComponent + "    ", sb)
             else if(!seenBranch.contains(dependencyId))
-                sb = printDependency(dependencyComponent, beforeComponent + "    ", sb, true, depth, dependencies.isEmpty())
+                sb = printDependency(dependencyComponent, beforeComponent + "    ", sb, true, depth + 1, dependencyComponent.getDependencies().isEmpty())
 
             seenBranch.add(dependencyId)
         }
