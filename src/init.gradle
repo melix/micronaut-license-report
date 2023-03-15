@@ -27,6 +27,7 @@ initscript {
 rootProject {
 
     def includeMicronautModulesProperty = providers.gradleProperty("includeMicronautModules").map(String::toBoolean).getOrElse(false)
+    def excludedModuleIdsProperty = providers.gradleProperty("excludedModuleIds").getOrElse("")
     def aggregator = rootProject.tasks.register("licenseReport", ReportAggregator) {
         jsonAggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
         mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
@@ -35,6 +36,7 @@ rootProject {
         xmlReport = aggregator.flatMap(r -> r.mergedXMLReport)
         textReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
         includeMicronautModules.set(includeMicronautModulesProperty)
+        excludedModuleIds.set(excludedModuleIdsProperty)
     }
 
     allprojects {
@@ -58,6 +60,7 @@ rootProject {
                             xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             includeMicronautModules.set(includeMicronautModulesProperty)
+                            excludedModuleIds.set(excludedModuleIdsProperty)
                             def modules = configurations.runtimeClasspath
                                     .incoming
                                     .resolutionResult
@@ -217,6 +220,9 @@ abstract class LicenseReportText extends DefaultTask {
 
     @Input
     abstract Property<Boolean> getIncludeMicronautModules()
+
+    @Input
+    abstract Property<String> getExcludedModuleIds()
 
     @Optional
     @Input
@@ -430,6 +436,11 @@ abstract class LicenseReportText extends DefaultTask {
                     }
                     def path = it.@licenseFiles.text()
                     def idForDisplay = removeVersion(id)
+//                  skip excluded Modules from the licenses report
+                    def excluded_Module_Ids=excludedModuleIds.get().split(";")
+                    if(excluded_Module_Ids.any {it && idForDisplay.contains(it)}){
+                        return
+                    }
                     writer.println(idForDisplay)
                     writer.println('=' * idForDisplay.length())
                     boolean hasLicenses = false
