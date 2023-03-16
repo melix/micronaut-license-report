@@ -43,7 +43,6 @@ rootProject {
         if(config == null)
             config = project.getConfigurations().findByName("runtimeClasspath")
         rootComponent = config.getIncoming().getResolutionResult().getRoot()
-        licenseReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
         dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
     }
 
@@ -88,7 +87,6 @@ rootProject {
                                     .getIncoming()
                                     .getResolutionResult()
                                     .getRoot()
-                            licenseReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                         }
                     }
@@ -500,13 +498,9 @@ abstract class LicenseReportText extends DefaultTask {
 abstract class DependencyTree extends DefaultTask{
 
     private static final String[] excludedDeps = ["jackson-annotations", "bom"]
-    private Set<String> usableDependencies = []
 
     @Input
     abstract Property<ResolvedComponentResult> getRootComponent()
-
-    @InputFile
-    abstract RegularFileProperty getLicenseReport()
 
     @OutputFile
     abstract RegularFileProperty getDependencyTreeReport()
@@ -521,7 +515,6 @@ abstract class DependencyTree extends DefaultTask{
                 return
             }
 
-            //getUsableDependencies("A")
             seen.add(root.id)
             StringBuilder sb = new StringBuilder()
 
@@ -543,23 +536,6 @@ abstract class DependencyTree extends DefaultTask{
             }
         }catch(Exception e){
             return
-        }
-    }
-
-    void getUsableDependencies(String configName){
-        if(configName == "allCodeCoverageReportClassDirectories")
-            return
-
-        File licenseReportFile = licenseReport.get().asFile
-        if(!licenseReportFile.exists())
-            return
-
-        List<String> lines = licenseReportFile.readLines()
-        for(String line in lines){
-            line = line.trim()
-            if(line == "")
-                return
-            usableDependencies << line
         }
     }
 
@@ -585,7 +561,6 @@ abstract class DependencyTree extends DefaultTask{
             ResolvedComponentResult dependencyComponent = ((ResolvedDependencyResult) d).getSelected()
             ComponentIdentifier dependencyId = dependencyComponent.getId()
 
-            //if(checkExcludedDeps(dependencyId) || !checkUsableDeps(dependencyId))
             if(checkExcludedDeps(dependencyId))
                 continue
 
@@ -604,15 +579,6 @@ abstract class DependencyTree extends DefaultTask{
             if(dependencyId.displayName.contains(exclusion))
                 return true
         }
-        return false
-    }
-
-    boolean checkUsableDeps(ComponentIdentifier dependencyId){
-        String dependencyDisplayName = dependencyId.displayName.trim()
-        if(usableDependencies.isEmpty())
-            return true
-        if(dependencyDisplayName.startsWith("project") || usableDependencies.contains(dependencyDisplayName))
-            return true
         return false
     }
 
