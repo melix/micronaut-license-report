@@ -410,7 +410,6 @@ abstract class LicenseReportText extends DefaultTask {
             writer.println()
             writer.println(LICENSE_LIST_HEADER)
             writer.println("-------------")
-
             // Then licenses for each component
             // also sorted
             components.each { compId ->
@@ -429,6 +428,7 @@ abstract class LicenseReportText extends DefaultTask {
                     }
                     return
                 }
+                Set<String> usedModuleIds = []
                 xml.components.component.each {
                     String id = it.@id.text()
                     if (id != compId) {
@@ -436,6 +436,8 @@ abstract class LicenseReportText extends DefaultTask {
                     }
                     def path = it.@licenseFiles.text()
                     def idForDisplay = removeVersion(id)
+                    //skip duplicates
+                    if(!usedModuleIds.add(idForDisplay)){return}
 //                  skip excluded Modules from the licenses report
                     def excluded_Module_Ids=excludedModuleIds.get().split(";")
                     if(excluded_Module_Ids.any {it && idForDisplay.contains(it)}){
