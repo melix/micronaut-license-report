@@ -29,12 +29,13 @@ abstract class GenerateReport : DefaultTask() {
         println("Injecting init script $initScriptPath")
         val projectDir = projectDirectory.get().asFile
         val includeMicronautModules = providers.gradleProperty("includeMicronautModules").map(String::toBoolean).getOrElse(false)
+        val excludedModuleIds = providers.gradleProperty("excludedModuleIds").getOrElse("")
         try {
             GradleConnector.newConnector()
                     .forProjectDirectory(projectDir)
                     .connect().use {
                     it.newBuild()
-                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules)
+                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds)
                         .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText", "licenseReportAggregatedText", "dependencyTree")
                         .setStandardOutput(System.out)
                         .setStandardError(System.err)
