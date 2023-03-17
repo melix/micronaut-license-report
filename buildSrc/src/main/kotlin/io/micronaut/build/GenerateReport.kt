@@ -35,8 +35,8 @@ abstract class GenerateReport : DefaultTask() {
                     .forProjectDirectory(projectDir)
                     .connect().use {
                     it.newBuild()
-                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules,"-PexcludedModuleIds="+excludedModuleIds)
-                        .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
+                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds)
+                        .forTasks("cleanGenerateLicense", "generateLicense", "licenseReport", "licenseReportText", "licenseReportAggregatedText", "dependencyTree")
                         .setStandardOutput(System.out)
                         .setStandardError(System.err)
                         .run()
