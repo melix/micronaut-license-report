@@ -327,7 +327,7 @@ abstract class LicenseReportText extends DefaultTask {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
                 sb.append(deduplicate(txt, fromComponent)).append("\n\n")
-                seen.add(f.toLowerCase())
+                seen.add(fileName)
             }
         }
         return sb.toString()
