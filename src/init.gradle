@@ -362,7 +362,7 @@ abstract class LicenseReportText extends DefaultTask {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
                 sb.append(deduplicate(txt, fromComponent)).append("\n\n")
-                seen.add(f.toLowerCase())
+                seen.add(fileName)
             }
         }
         if(fromComponent.toLowerCase().contains("jackson"))
@@ -710,47 +710,5 @@ abstract class DependencyTree extends DefaultTask{
     @TaskAction
     void execute(){
         printDependencyTree()
-        //tryOptional()
-    }
-
-    void tryOptional(){
-        try {
-            Configuration config = project.getConfigurations().findByName("allCodeCoverageReportClassDirectories")
-            if(config == null)
-                config = project.getConfigurations().findByName("runtimeClasspath")
-            StringBuilder sb = new StringBuilder()
-
-            config.getIncoming().dependencies.each {dep ->
-                config.files(dep).each {file ->
-                    sb.append(file.name + "\n")
-                    findPomFile(file)
-                }
-            }
-        }catch(Exception e){
-            return
-        }
-    }
-
-    void findPomFile(File dependencyFile){
-        def parentDir = dependencyFile.parentFile.parentFile
-
-        if(!parentDir.isDirectory())
-            return
-
-        parentDir.eachFileRecurse {pomFile ->
-            if(pomFile.name.endsWith(".pom"))
-                findOptionalDeps(pomFile)
-        }
-    }
-
-    void findOptionalDeps(File pomFile){
-        def pomXml = new XmlSlurper().parse(pomFile)
-        pomXml.dependencies."*".find{node ->
-            String optional = node.optional.text()
-            if(optional.trim().toLowerCase() == "true") {
-                String depName = node.groupId.text() + ":" + node.artifactId.text() + ":" + node.version.text()
-                //println("depname: " + depName)
-            }
-        }
     }
 }
