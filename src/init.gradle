@@ -228,7 +228,7 @@ abstract class LicenseReportText extends DefaultTask {
     private static final String NOT_FOUND = "License unavailable"
     private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
     private static final String[] JACKSON_LICENSE_FILE_PATHS = ["datatypes/src/main/resources/META-INF/", "dataformat/src/main/resources/META-INF/"]
-    private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "License", "license", "NOTICE", "Notice", "notice", "COPYRIGHT", "Copyright", "copyright"]
+    private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "License", "license", "NOTICE", "Notice", "notice", "COPYRIGHT", "Copyright", "copyright", "LGPL2.1"]
     private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
 
     private static final Map<String, String> URL_CACHE = Collections.synchronizedMap([:].withDefault { key ->
