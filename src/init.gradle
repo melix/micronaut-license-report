@@ -32,20 +32,26 @@ rootProject {
         jsonAggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
         mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
     }
-    def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
-        xmlReport = aggregator.flatMap(r -> r.mergedXMLReport)
-        textReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
-        includeMicronautModules.set(includeMicronautModulesProperty)
-        excludedModuleIds.set(excludedModuleIdsProperty)
-    }
 
     def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
-        mustRunAfter(aggregatedText)
         Configuration config = project.getConfigurations().findByName("allCodeCoverageReportClassDirectories")
         if(config == null)
             config = project.getConfigurations().findByName("runtimeClasspath")
         rootComponent = config.getIncoming().getResolutionResult().getRoot()
+        def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
+        def excludedDeps = new File(parentDir + "/src/resources/excluded_deps.txt")
+        if(excludedDeps.exists())
+            excludedDepsFile = excludedDeps
         dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
+    }
+
+    def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
+        dependsOn(dependencyTree)
+        depTreePath = rootProject.layout.buildDirectory.get().asFile.absolutePath + "/licenses/tree_all.txt"
+        xmlReport = aggregator.flatMap(r -> r.mergedXMLReport)
+        textReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
+        includeMicronautModules.set(includeMicronautModulesProperty)
+        excludedModuleIds.set(excludedModuleIdsProperty)
     }
 
     allprojects {
@@ -64,8 +70,22 @@ rootProject {
                             mustRunAfter(singleReport)
                             reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
                         }
-                        def licenseReportText = tasks.register("licenseReportText", LicenseReportText) {
+                        def dependencyTreeSubproject = tasks.register("dependencyTree", DependencyTree){
                             mustRunAfter(singleReport)
+                            rootComponent = project.getConfigurations()
+                                    .findByName("runtimeClasspath")
+                                    .getIncoming()
+                                    .getResolutionResult()
+                                    .getRoot()
+                            def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
+                            def excludedDeps = new File(parentDir + "/src/resources/excluded_deps.txt")
+                            if(excludedDeps.exists())
+                                excludedDepsFile = excludedDeps
+                            dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
+                        }
+                        def licenseReportText = tasks.register("licenseReportText", LicenseReportText) {
+                            dependsOn(dependencyTreeSubproject)
+                            depTreePath = rootProject.layout.buildDirectory.get().asFile.absolutePath + "/licenses/tree_${pub.groupId}:${pub.artifactId}.txt"
                             xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             includeMicronautModules.set(includeMicronautModulesProperty)
@@ -82,15 +102,6 @@ rootProject {
                                 micronautModules.addAll(modules)
                             }
                             micronautModules.set(modules)
-                        }
-                        tasks.register("dependencyTree", DependencyTree){
-                            mustRunAfter(licenseReportText)
-                            rootComponent = project.getConfigurations()
-                                    .findByName("runtimeClasspath")
-                                    .getIncoming()
-                                    .getResolutionResult()
-                                    .getRoot()
-                            dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                         }
                     }
                 }
@@ -216,6 +227,7 @@ abstract class LicenseReportText extends DefaultTask {
     public static final String LICENSE_LIST_HEADER = "LICENSES LIST"
     private static final String NOT_FOUND = "License unavailable"
     private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
+    private static final String[] JACKSON_LICENSE_FILE_PATHS = ["datatype/src/main/resources/META-INF/", "dataformat/src/main/resources/META-INF/"]
     private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "NOTICE", "COPYRIGHT"]
     private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
 
@@ -229,6 +241,7 @@ abstract class LicenseReportText extends DefaultTask {
     })
 
     private Map<String, String> licenseToComponent = [:]
+    private Set<String> usableDeps = []
 
     @InputFile
     abstract RegularFileProperty getXmlReport()
@@ -248,6 +261,9 @@ abstract class LicenseReportText extends DefaultTask {
 
     @Internal
     abstract DirectoryProperty getRootDir()
+
+    @Input
+    abstract Property<String> getDepTreePath()
 
     LicenseReportText() {
         rootDir.set(project.rootProject.layout.projectDirectory)
@@ -314,8 +330,26 @@ abstract class LicenseReportText extends DefaultTask {
         idForDisplay
     }
 
+    StringBuilder tryManyLicensesJackson(String baseUri, String fromComponent, Set<String> seen, StringBuilder sb){
+        [JACKSON_LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
+            String fileName = ((String) f).toLowerCase()
+            if(seen.contains(fileName))
+                return
+            def fn = ext ? "${f}.${ext}" : f
+            def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
+            if (txt) {
+                sb.append("${fn}\n")
+                sb.append("-" * fn.length()).append("\n")
+                sb.append(deduplicate(txt, fromComponent)).append("\n\n")
+                seen.add(fileName)
+            }
+        }
+        return sb
+    }
+
     String tryManyLicenses(String baseUri, String fromComponent) {
         StringBuilder sb = new StringBuilder()
+        Set<String> seen = []
         [LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
@@ -323,8 +357,11 @@ abstract class LicenseReportText extends DefaultTask {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
                 sb.append(deduplicate(txt, fromComponent)).append("\n\n")
+                seen.add(((String) f).toLowerCase())
             }
         }
+        if(fromComponent.toLowerCase().contains("jackson"))
+            sb = tryManyLicensesJackson(baseUri, fromComponent, seen, sb)
         return sb.toString()
     }
 
@@ -384,10 +421,35 @@ abstract class LicenseReportText extends DefaultTask {
         return licenseFiles
     }
 
+    boolean findUsableDepsFromTree(){
+        File depTreeFile = new File(depTreePath.get())
+        if(!depTreeFile.exists())
+            return false
+
+        def lines = depTreeFile.readLines()
+        for(String line in lines){
+            String trimmed = line.trim()
+            if(trimmed == "") {
+                return true
+            }
+            usableDeps.add(trimmed.toLowerCase())
+        }
+        return true
+    }
+
+    boolean checkUsableDep(String depId){
+        if(usableDeps.contains(depId.trim().toLowerCase())) {
+            return true
+        }
+        return false
+    }
+
     @TaskAction
     void execute() {
         def xmlFile = xmlReport.get().asFile
         def txtFile = textReport.get().asFile
+        if(!findUsableDepsFromTree())
+            return
         txtFile.withWriter { writer ->
             def baseDir = xmlFile.parentFile.toPath()
             def xml = new XmlSlurper()
@@ -410,7 +472,9 @@ abstract class LicenseReportText extends DefaultTask {
             def components = [] as LinkedHashSet
             if (includeMicronautModules.get() && getMicronautModules().isPresent()) {
                 getMicronautModules().get().each {
-                    components << it
+                    if(checkUsableDep(it)) {
+                        components << it
+                    }
                 }
             }
             xml.components.component.each {
@@ -419,7 +483,8 @@ abstract class LicenseReportText extends DefaultTask {
                     // skip this component
                     return
                 }
-                components << id
+                if(checkUsableDep((String) id))
+                    components << id
             }
             components = components.sort()
             components.each {
@@ -508,10 +573,14 @@ abstract class LicenseReportText extends DefaultTask {
 
 abstract class DependencyTree extends DefaultTask{
 
-    private static final String[] excludedDeps = ["jackson-annotations", "bom"]
+    private Set<String> excludedDeps = []
 
     @Input
     abstract Property<ResolvedComponentResult> getRootComponent()
+
+    @Optional
+    @InputFile
+    abstract RegularFileProperty getExcludedDepsFile()
 
     @OutputFile
     abstract RegularFileProperty getDependencyTreeReport()
@@ -526,8 +595,12 @@ abstract class DependencyTree extends DefaultTask{
                 return
             }
 
+            getExcludedDeps()
             seen.add(root.id)
             StringBuilder sb = new StringBuilder()
+
+            if(checkExcludedDeps(root.id))
+                return
 
             sb = printDependencyTreePreorder(root, seen, 0, "", sb)
             def seenSorted = seen.sort{it.displayName}
@@ -547,6 +620,18 @@ abstract class DependencyTree extends DefaultTask{
             }
         }catch(Exception e){
             return
+        }
+    }
+
+    void getExcludedDeps(){
+        if(!excludedDepsFile.isPresent())
+            return
+
+        File exclusionsFile = excludedDepsFile.get().asFile
+        def lines = exclusionsFile.readLines()
+
+        for(String line in lines){
+            excludedDeps.add(line.trim())
         }
     }
 
@@ -619,5 +704,47 @@ abstract class DependencyTree extends DefaultTask{
     @TaskAction
     void execute(){
         printDependencyTree()
+        //tryOptional()
+    }
+
+    void tryOptional(){
+        try {
+            Configuration config = project.getConfigurations().findByName("allCodeCoverageReportClassDirectories")
+            if(config == null)
+                config = project.getConfigurations().findByName("runtimeClasspath")
+            StringBuilder sb = new StringBuilder()
+
+            config.getIncoming().dependencies.each {dep ->
+                config.files(dep).each {file ->
+                    sb.append(file.name + "\n")
+                    findPomFile(file)
+                }
+            }
+        }catch(Exception e){
+            return
+        }
+    }
+
+    void findPomFile(File dependencyFile){
+        def parentDir = dependencyFile.parentFile.parentFile
+
+        if(!parentDir.isDirectory())
+            return
+
+        parentDir.eachFileRecurse {pomFile ->
+            if(pomFile.name.endsWith(".pom"))
+                findOptionalDeps(pomFile)
+        }
+    }
+
+    void findOptionalDeps(File pomFile){
+        def pomXml = new XmlSlurper().parse(pomFile)
+        pomXml.dependencies."*".find{node ->
+            String optional = node.optional.text()
+            if(optional.trim().toLowerCase() == "true") {
+                String depName = node.groupId.text() + ":" + node.artifactId.text() + ":" + node.version.text()
+                //println("depname: " + depName)
+            }
+        }
     }
 }
