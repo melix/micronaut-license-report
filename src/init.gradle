@@ -227,8 +227,8 @@ abstract class LicenseReportText extends DefaultTask {
     public static final String LICENSE_LIST_HEADER = "LICENSES LIST"
     private static final String NOT_FOUND = "License unavailable"
     private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
-    private static final String[] JACKSON_LICENSE_FILE_PATHS = ["datatype/src/main/resources/META-INF/", "dataformat/src/main/resources/META-INF/"]
-    private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "NOTICE", "COPYRIGHT"]
+    private static final String[] JACKSON_LICENSE_FILE_PATHS = ["datatypes/src/main/resources/META-INF/", "dataformat/src/main/resources/META-INF/"]
+    private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "License", "license", "NOTICE", "Notice", "notice", "COPYRIGHT", "Copyright", "copyright"]
     private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
 
     private static final Map<String, String> URL_CACHE = Collections.synchronizedMap([:].withDefault { key ->
@@ -331,8 +331,10 @@ abstract class LicenseReportText extends DefaultTask {
     }
 
     StringBuilder tryManyLicensesJackson(String baseUri, String fromComponent, Set<String> seen, StringBuilder sb){
+        if(fromComponent.contains("jackson-modules-java8"))
+            baseUri = baseUri - "/master" + "/2.14"
         [JACKSON_LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
-            String fileName = ((String) f).toLowerCase()
+            String fileName = f.toLowerCase()
             if(seen.contains(fileName))
                 return
             def fn = ext ? "${f}.${ext}" : f
@@ -351,13 +353,16 @@ abstract class LicenseReportText extends DefaultTask {
         StringBuilder sb = new StringBuilder()
         Set<String> seen = []
         [LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
+            String fileName = f.toLowerCase()
+            if(seen.contains(fileName))
+                return
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
             if (txt) {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
                 sb.append(deduplicate(txt, fromComponent)).append("\n\n")
-                seen.add(((String) f).toLowerCase())
+                seen.add(f.toLowerCase())
             }
         }
         if(fromComponent.toLowerCase().contains("jackson"))
@@ -429,18 +434,20 @@ abstract class LicenseReportText extends DefaultTask {
         def lines = depTreeFile.readLines()
         for(String line in lines){
             String trimmed = line.trim()
-            if(trimmed == "") {
+            if(trimmed == "")
                 return true
-            }
             usableDeps.add(trimmed.toLowerCase())
         }
         return true
     }
 
     boolean checkUsableDep(String depId){
-        if(usableDeps.contains(depId.trim().toLowerCase())) {
+        if (includeMicronautModules.get() && depId.startsWith('io.micronaut')) {
+            println("Micronaut module: ${depId}")
             return true
         }
+        if(usableDeps.contains(depId.trim().toLowerCase()))
+            return true
         return false
     }
 
@@ -472,17 +479,14 @@ abstract class LicenseReportText extends DefaultTask {
             def components = [] as LinkedHashSet
             if (includeMicronautModules.get() && getMicronautModules().isPresent()) {
                 getMicronautModules().get().each {
-                    if(checkUsableDep(it)) {
-                        components << it
-                    }
+                    components << it
                 }
             }
             xml.components.component.each {
                 def id = it.@id.text()
-                if (!includeMicronautModules.get() && id.startsWith('io.micronaut')) {
+                if (!includeMicronautModules.get() && id.startsWith('io.micronaut'))
                     // skip this component
                     return
-                }
                 if(checkUsableDep((String) id))
                     components << id
             }

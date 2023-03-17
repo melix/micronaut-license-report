@@ -63,7 +63,7 @@ licenseReports {
             "micronaut-camel",
             "micronaut-build-plugins",
     ).filter {
-      it.contains("micronaut")
+      it.contains("micronaut-core")
     }.map {
         val (name, branch) = if (it.contains('@')) {
             it.split('@')
