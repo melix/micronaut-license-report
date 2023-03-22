@@ -1,6 +1,6 @@
 benchmark
 inject-groovy
-inject-kotlin-test
+inject-kotlin
 inject-java-test
 inject-groovy-test
 test
