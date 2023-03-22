@@ -45,6 +45,9 @@ rootProject {
             excludedDepsFile = excludedDeps
         }
         dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
+        excludedDepsLogFile = rootProject.layout.buildDirectory.file("licenses/excluded_dependencies.txt")
+        if(excludedDepsLogFile.get().asFile.exists())
+            excludedDepsLogFile.get().asFile.delete()
     }
 
     def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
@@ -85,6 +88,7 @@ rootProject {
                                 excludedDepsFile = excludedDeps
                             }
                             dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
+                            excludedDepsLogFile = rootProject.layout.buildDirectory.file("licenses/excluded_dependencies.txt")
                         }
                         def licenseReportText = tasks.register("licenseReportText", LicenseReportText) {
                             dependsOn(dependencyTreeSubproject)
@@ -591,6 +595,7 @@ abstract class LicenseReportText extends DefaultTask {
 abstract class DependencyTree extends DefaultTask{
 
     private Set<String> excludedDeps = []
+    private Set<String> excludedDepsForLog = []
 
     @Input
     abstract Property<ResolvedComponentResult> getRootComponent()
@@ -601,6 +606,9 @@ abstract class DependencyTree extends DefaultTask{
 
     @OutputFile
     abstract RegularFileProperty getDependencyTreeReport()
+
+    @OutputFile
+    abstract RegularFileProperty getExcludedDepsLogFile()
 
     void printDependencyTree(){
         try {
@@ -617,6 +625,7 @@ abstract class DependencyTree extends DefaultTask{
             StringBuilder sb = new StringBuilder()
 
             if(checkExcludedDeps(root.id)) {
+                logExcludedDeps(root.id.displayName, true)
                 return
             }
 
@@ -638,6 +647,7 @@ abstract class DependencyTree extends DefaultTask{
                 writer.println()
                 writer.println(sb.toString())
             }
+            logExcludedDeps(root.id.displayName, false)
         }catch(Exception e){
             return
         }
@@ -698,6 +708,7 @@ abstract class DependencyTree extends DefaultTask{
     boolean checkExcludedDeps(ComponentIdentifier dependencyId){
         for(String exclusion in excludedDeps){
             if(dependencyId.displayName.contains(exclusion)) {
+                excludedDepsForLog.add(dependencyId.displayName)
                 return true
             }
         }
@@ -726,6 +737,36 @@ abstract class DependencyTree extends DefaultTask{
         }
         sb.append("\n")
         return sb
+    }
+
+    void logExcludedDeps(String projectId, boolean wholeProjectExclusion){
+        def logFile = excludedDepsLogFile.get().asFile
+        String excl = makeExclusionSb(projectId)
+
+        logFile.withWriterAppend {writer ->
+            if(wholeProjectExclusion == true){
+                writer.println("[${projectId}]: Whole project is excluded\n")
+                return
+            }
+
+            if(excl != null)
+                writer.println(excl)
+        }
+    }
+
+    String makeExclusionSb(String projectId){
+        if(excludedDepsForLog.isEmpty())
+            return null
+
+        StringBuilder sb = new StringBuilder()
+        sb.append("[${projectId}] - ")
+        for(String excl in excludedDepsForLog){
+            sb.append("${excl}, ")
+        }
+
+        def sbString = sb.toString()
+        def retStr = sbString.substring(0, sbString.length() - 2) + "\n"
+        return retStr
     }
 
     @TaskAction
