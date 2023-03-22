@@ -1,8 +1,6 @@
 benchmark
 inject-groovy
 inject-kotlin
-inject-java-test
-inject-groovy
 test
 test-suite
 jackson-annotations
