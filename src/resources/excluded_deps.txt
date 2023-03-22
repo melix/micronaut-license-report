@@ -1,0 +1,8 @@
+benchmark
+inject-
+test
+test-suite
+jackson-annotations
+bom
+junit
+spock
