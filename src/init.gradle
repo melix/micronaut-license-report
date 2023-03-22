@@ -216,7 +216,7 @@ abstract class LicenseReportText extends DefaultTask {
     public static final String LICENSE_LIST_HEADER = "LICENSES LIST"
     private static final String NOT_FOUND = "License unavailable"
     private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
-    private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "NOTICE", "COPYRIGHT"]
+    private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "License", "license", "NOTICE", "Notice", "notice", "COPYRIGHT", "Copyright", "copyright", "LGPL2.1"]
     private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
 
     private static final Map<String, String> URL_CACHE = Collections.synchronizedMap([:].withDefault { key ->
@@ -316,13 +316,18 @@ abstract class LicenseReportText extends DefaultTask {
 
     String tryManyLicenses(String baseUri, String fromComponent) {
         StringBuilder sb = new StringBuilder()
+        Set<String> seen = []
         [LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
+            String fileName = f.toLowerCase()
+            if(seen.contains(fileName))
+                return
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
             if (txt) {
                 sb.append("${fn}\n")
                 sb.append("-" * fn.length()).append("\n")
                 sb.append(deduplicate(txt, fromComponent)).append("\n\n")
+                seen.add(fileName)
             }
         }
         return sb.toString()
