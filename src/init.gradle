@@ -3,6 +3,7 @@ import groovy.json.JsonOutput
 import groovy.json.StreamingJsonBuilder
 import groovy.xml.DOMBuilder
 import groovy.xml.XmlSlurper
+import org.eclipse.jgit.api.Git
 
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.OutputKeys
@@ -21,6 +22,7 @@ initscript {
         classpath "com.github.vlsi.gradle:license-gather-plugin:1.74"
         classpath "org.codehaus.groovy:groovy-xml:3.0.8"
         classpath "org.codehaus.groovy:groovy-json:3.0.8"
+        classpath "org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r"
     }
 }
 
@@ -28,6 +30,7 @@ rootProject {
 
     def includeMicronautModulesProperty = providers.gradleProperty("includeMicronautModules").map(String::toBoolean).getOrElse(false)
     def excludedModuleIdsProperty = providers.gradleProperty("excludedModuleIds").getOrElse("")
+    def addCopyrightsFromSource = providers.gradleProperty("addCopyrightsFromSource").map(String::toBoolean).getOrElse(false)
     def aggregator = rootProject.tasks.register("licenseReport", ReportAggregator) {
         jsonAggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
         mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
@@ -50,13 +53,23 @@ rootProject {
             excludedDepsLogFile.get().asFile.delete()
     }
 
-    def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
+    def findCopyrights = tasks.register("findCopyrights", FindConnections){
         dependsOn(dependencyTree)
+        dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
+        includeCopyrights.set(addCopyrightsFromSource)
+        additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
+//        copyrightsFile = rootProject.layout.buildDirectory.file("copyrights_all.txt")
+    }
+
+    def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
+        dependsOn(findCopyrights)
         dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
         xmlReport = aggregator.flatMap(r -> r.mergedXMLReport)
         textReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
         includeMicronautModules.set(includeMicronautModulesProperty)
         excludedModuleIds.set(excludedModuleIdsProperty)
+        includeCopyrights.set(addCopyrightsFromSource)
+        additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
     }
 
     allprojects {
@@ -90,13 +103,22 @@ rootProject {
                             dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                             excludedDepsLogFile = rootProject.layout.buildDirectory.file("licenses/excluded_dependencies.txt")
                         }
-                        def licenseReportText = tasks.register("licenseReportText", LicenseReportText) {
+                        def findCopyrightsSubproject = tasks.register("findCopyrights", FindConnections){
                             dependsOn(dependencyTreeSubproject)
+                            dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
+                            includeCopyrights.set(addCopyrightsFromSource)
+                            additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
+//                            copyrightsFile = rootProject.layout.buildDirectory.file("copyrights_${pub.groupId}:${pub.artifactId}.txt")
+                        }
+                        def licenseReportText = tasks.register("licenseReportText", LicenseReportText) {
+                            dependsOn(findCopyrightsSubproject)
                             dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                             xmlReport = new File(singleReport.get().licenseDir.asFile.get(), "license.xml")
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             includeMicronautModules.set(includeMicronautModulesProperty)
                             excludedModuleIds.set(excludedModuleIdsProperty)
+                            includeCopyrights.set(addCopyrightsFromSource)
+                            additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
                             def modules = configurations.runtimeClasspath
                                     .incoming
                                     .resolutionResult
@@ -237,6 +259,7 @@ abstract class LicenseReportText extends DefaultTask {
     private static final String[] JACKSON_LICENSE_FILE_PATHS = ["datatypes/src/main/resources/META-INF/", "dataformat/src/main/resources/META-INF/"]
     private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "License", "license", "NOTICE", "Notice", "notice", "COPYRIGHT", "Copyright", "copyright", "LGPL2.1"]
     private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
+    private static final String COPYRIGHTS_FOR_DIR_FILENAME = "/copyrights_found.txt"
 
     private static final Map<String, String> URL_CACHE = Collections.synchronizedMap([:].withDefault { key ->
         HttpURLConnection connection = new URL(key).openConnection()
@@ -249,6 +272,7 @@ abstract class LicenseReportText extends DefaultTask {
 
     private Map<String, String> licenseToComponent = [:]
     private Set<String> usableDeps = []
+    private Map<String, Set<String>> componentToCopyrights = [:]
 
     @InputFile
     abstract RegularFileProperty getXmlReport()
@@ -271,6 +295,12 @@ abstract class LicenseReportText extends DefaultTask {
 
     @InputFiles
     abstract RegularFileProperty getDependencyTreeFile()
+
+    @InputFiles
+    abstract DirectoryProperty getAdditionalCheckoutsDir()
+
+    @Input
+    abstract Property<Boolean> getIncludeCopyrights()
 
     LicenseReportText() {
         rootDir.set(project.rootProject.layout.projectDirectory)
@@ -449,7 +479,7 @@ abstract class LicenseReportText extends DefaultTask {
             if(trimmed == "") {
                 return true
             }
-            usableDeps.add(trimmed.toLowerCase())
+            usableDeps.add(trimmed)
         }
         return true
     }
@@ -458,10 +488,86 @@ abstract class LicenseReportText extends DefaultTask {
         if (includeMicronautModules.get() && depId.startsWith('io.micronaut')) {
             return true
         }
-        if(usableDeps.contains(depId.trim().toLowerCase())) {
+        if(usableDeps.contains(depId.trim())) {
             return true
         }
         return false
+    }
+
+    String findConnection(String dep){
+        def (String g, String a, String v) = dep.split(":")
+        ArtifactResolutionResult res = project.dependencies.createArtifactResolutionQuery()
+                .forModule(g, a, v)
+                .withArtifacts(MavenModule, MavenPomArtifact)
+                .execute()
+
+        def connection = null
+        res.resolvedComponents.each {
+            it.getArtifacts(MavenPomArtifact).each {
+                if(connection){
+                    return
+                }
+
+                def xmlFile = it.file
+                def xml = new XmlSlurper().parse(xmlFile)
+                connection = xml.scm.connection ? xml.scm.connection[0].text() : ""
+
+                if (!connection) {
+                    if (xml.'parent'.groupId.text()) {
+                        def parentPom = "${xml.'parent'.groupId.text()}:${xml.'parent'.artifactId.text()}:${xml.'parent'.version.text()}"
+                        connection = findConnection(parentPom)
+                    }
+                }
+            }
+        }
+
+        return connection
+    }
+
+    void findCopyrightsForDep(String dep, String connection){
+        if(!includeCopyrights.get().booleanValue()){
+            return
+        }
+
+        Set<String> copyrights = []
+        def dirName = connection.tokenize("/").last() - ".git"
+        def copyrightsFile = new File("${additionalCheckoutsDir.get().asFile.absolutePath}/${dirName}${COPYRIGHTS_FOR_DIR_FILENAME}")
+
+        if(!copyrightsFile.exists()){
+            return
+        }
+
+        def lines = copyrightsFile.readLines()
+        for(def line in lines){
+            copyrights.add(line)
+        }
+
+        componentToCopyrights[dep] = copyrights
+    }
+
+    void findCopyrights(){
+        if(!includeCopyrights.get().booleanValue()){
+            return
+        }
+
+        for(def dep in usableDeps){
+            def conn = findConnection(dep)
+            findCopyrightsForDep(dep, conn)
+        }
+    }
+
+    void printCopyrights(String id, Writer writer){
+        if(!includeCopyrights.get().booleanValue()){
+            return
+        }
+
+        Set<String> copyrights = componentToCopyrights[id]
+        writer.println("Copyrights")
+        writer.println("----------")
+        for(def copyright in copyrights){
+            writer.println(copyright)
+        }
+        writer.print("\n\n")
     }
 
     @TaskAction
@@ -471,6 +577,7 @@ abstract class LicenseReportText extends DefaultTask {
         if(!findUsableDepsFromTree()) {
             return
         }
+        findCopyrights()
         txtFile.withWriter { writer ->
             def baseDir = xmlFile.parentFile.toPath()
             def xml = new XmlSlurper()
@@ -583,6 +690,8 @@ abstract class LicenseReportText extends DefaultTask {
                             }
                         }
                     }
+
+                    printCopyrights(id, writer)
                 }
 
             }
@@ -772,5 +881,258 @@ abstract class DependencyTree extends DefaultTask{
     @TaskAction
     void execute(){
         printDependencyTree()
+    }
+}
+
+abstract class FindConnections extends DefaultTask{
+
+    private Set<String> usableDeps = []
+    private Map<String, String> componentToConnection = [:]
+//    private Map<String, Set<String>> componentToCopyrights = [:]
+
+    private static final String COPYRIGHTS_FOR_DIR_FILENAME = "/copyrights_found.txt"
+//    private static final char COPYRIGHT_SEPARATOR = '^'
+//    private static final char DEP_TO_COPYRIGHT_SEPARATOR = '#'
+
+    @InputFiles
+    abstract RegularFileProperty getDependencyTreeFile()
+
+    @InputFiles
+    abstract DirectoryProperty getAdditionalCheckoutsDir()
+
+    @Input
+    abstract Property<Boolean> getIncludeCopyrights()
+
+    boolean findUsableDepsFromTree(){
+        File depTreeFile = dependencyTreeFile.get().asFile
+        if(!depTreeFile.exists()) {
+            return false
+        }
+
+        def lines = depTreeFile.readLines()
+        for(String line in lines){
+            String trimmed = line.trim()
+            if(trimmed == "") {
+                return true
+            }
+            usableDeps.add(trimmed)
+        }
+        return true
+    }
+
+    String findConnection(String dep){
+        def (String g, String a, String v) = dep.split(":")
+        ArtifactResolutionResult res = project.dependencies.createArtifactResolutionQuery()
+                .forModule(g, a, v)
+                .withArtifacts(MavenModule, MavenPomArtifact)
+                .execute()
+
+        def connection = null
+        res.resolvedComponents.each {
+            it.getArtifacts(MavenPomArtifact).each {
+                if(connection){
+                    return
+                }
+
+                def xmlFile = it.file
+                def xml = new XmlSlurper().parse(xmlFile)
+                connection = xml.scm.connection ? xml.scm.connection[0].text() : ""
+
+                if (!connection) {
+                    if (xml.'parent'.groupId.text()) {
+                        def parentPom = "${xml.'parent'.groupId.text()}:${xml.'parent'.artifactId.text()}:${xml.'parent'.version.text()}"
+                        connection = findConnection(parentPom)
+                    }
+                }
+            }
+        }
+
+        return connection
+    }
+
+    String makeConnection(String connection){
+        if (!connection) {
+            return null
+        }
+        String baseUri = null
+        def idx = connection.indexOf("http://bitbucket.org/")
+        if (idx == -1) {
+            idx = connection.indexOf("https://bitbucket.org/")
+        }
+        if (idx == -1) {
+            idx = connection.indexOf("https://gitlab.ow2.org/")
+        }
+        if(idx == -1){
+            idx = connection.indexOf("http://gitbox.apache.org/")
+            if(idx != -1) {
+                //Changing the source site from gitbox to github by getting the name of the module from the connection,
+                // as it is easier to work with than gitbox
+                String path = "/apache/" + connection.tokenize('/').last()
+                baseUri = "https://github.com/$path"
+            }
+        }
+        if (idx > 0 && baseUri == null) {
+            baseUri = "${connection.substring(idx).replace('http:', 'https:')}"
+        } else {
+            idx = connection.indexOf("github.com")
+            if (idx > 0) {
+                String path = connection.substring(idx + 10).replaceAll(':', '/')
+                baseUri = "https://github.com/$path"
+            }
+        }
+
+        return baseUri
+    }
+
+    void mapCompToConnection(String compId, String connection){
+        def normalizedCompId = compId.trim()
+        def existingConn = componentToConnection[normalizedCompId]
+
+        if(existingConn) {
+            return
+        }
+
+        String properConnection = makeConnection(connection)
+        if(properConnection != null) {
+            componentToConnection[normalizedCompId] = properConnection
+        }
+    }
+
+    void checkoutReposAndGetCopyrights(){
+        for(def entry in componentToConnection){
+            def dirName = entry.value.tokenize("/").last() - ".git"
+            def checkoutDir = additionalCheckoutsDir.file("${dirName}").get().asFile
+
+            if(!checkoutDir.exists()){
+                tryCheckout(entry.value, checkoutDir)
+            }
+        }
+    }
+
+    void tryCheckout(String connection, File checkoutDir){
+        def gitRepo = null
+        try {
+            println("Checking out repository ${connection} in ${checkoutDir.absolutePath}")
+            gitRepo = Git.cloneRepository()
+                    .setURI(connection)
+                    .setDirectory(checkoutDir)
+                    .call()
+            findCopyrightsInDir(checkoutDir)
+        }catch(Exception e){
+            println("Checkout failed")
+        }finally{
+            if(gitRepo != null){
+                gitRepo.close()
+            }
+        }
+    }
+
+    void findCopyrightsInDir(File checkoutDir){
+        Set<String> actualCopyrights = []
+        Set<String> copyrightsToCompare = []
+        File copyrightsFile = new File(checkoutDir.absolutePath + COPYRIGHTS_FOR_DIR_FILENAME)
+
+        if(copyrightsFile.exists() || !checkoutDir.exists()) {
+            return
+        }
+
+        copyrightsFile.createNewFile()
+        checkoutDir.eachFileRecurse {file ->
+            if(!file.name.endsWith(".java") && !file.name.endsWith(".h")){
+                return
+            }
+
+            def copyrightFoundFlag = false
+            def lines = file.readLines()
+            for(def line in lines) {
+                def normalizedLine = line.replaceAll("[\\/\\*]", '').trim()
+                def lineToCompare = normalizedLine.replaceAll("[^a-zA-Z]", "").toLowerCase()
+
+                if (normalizedLine.toLowerCase().startsWith("copyright")) {
+                    if(copyrightsToCompare.add(lineToCompare)) {
+                        actualCopyrights.add(normalizedLine)
+                    }
+                    copyrightFoundFlag = true
+                } else if (copyrightFoundFlag) {
+                    break
+                }
+
+                if (normalizedLine.toLowerCase().contains("package")){
+                    break
+                }
+            }
+
+            copyrightsFile.withWriter {writer ->
+                for(def copyright in actualCopyrights){
+                    writer.println(copyright)
+                }
+            }
+        }
+    }
+//
+//    void findCopyrightsForDeps(){
+//        for(def entry in componentToConnection){
+//            def dirName = entry.value.tokenize("/").last() - ".git"
+//            def checkoutDir = additionalCheckoutsDir.file("${dirName}").get().asFile
+//            def dep = entry.key
+//            def copyrights = []
+//            File copyrightsFile = new File(checkoutDir.absolutePath + COPYRIGHTS_FOR_DIR_FILENAME)
+//
+//            if(!copyrightsFile.exists()){
+//                return
+//            }
+//
+//            def lines = copyrightsFile.readLines()
+//            for(def line in lines){
+//                if(line.trim() != "") {
+//                    copyrights.add(line)
+//                }
+//            }
+//
+//            componentToCopyrights[dep] = copyrights
+//        }
+//    }
+//
+//    void printCopyrightsToCopyrightFile(){
+//        StringBuilder sb = new StringBuilder()
+//
+//        for(def entry in componentToCopyrights){
+//            def copyrights = entry.value
+//            if(copyrights.isEmpty()) {
+//                return
+//            }
+//
+//            sb.append("${entry.key}${DEP_TO_COPYRIGHT_SEPARATOR}")
+//            for(def copyright in copyrights){
+//                println(copyright)
+//                sb.append("${copyright}${COPYRIGHT_SEPARATOR}")
+//            }
+//
+//            sb.setLength(sb.length() - 1)
+//            sb.append("\n")
+//        }
+//
+//        println(sb.toString())
+//
+//        File copyrightsOutputFile = copyrightsFile.get().asFile
+//        copyrightsOutputFile.withWriter {writer ->
+//            writer.println(sb.toString())
+//        }
+//    }
+
+    @TaskAction
+    void execute(){
+        if(!includeCopyrights.get().booleanValue() || !findUsableDepsFromTree()) {
+            return
+        }
+
+        for(def dep in usableDeps){
+            def conn = findConnection(dep)
+            mapCompToConnection(dep, conn)
+        }
+
+        checkoutReposAndGetCopyrights()
+//        findCopyrightsForDeps()
+//        printCopyrightsToCopyrightFile()
     }
 }

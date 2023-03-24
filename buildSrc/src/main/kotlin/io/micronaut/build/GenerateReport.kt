@@ -30,13 +30,14 @@ abstract class GenerateReport : DefaultTask() {
         val projectDir = projectDirectory.get().asFile
         val includeMicronautModules = providers.gradleProperty("includeMicronautModules").map(String::toBoolean).getOrElse(false)
         val excludedModuleIds = providers.gradleProperty("excludedModuleIds").getOrElse("")
+        val addCopyrightsFromSource = providers.gradleProperty("addCopyrightsFromSource").map(String::toBoolean).getOrElse(false)
         try {
             GradleConnector.newConnector()
                     .forProjectDirectory(projectDir)
                     .connect().use {
                     it.newBuild()
-                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds)
-                        .forTasks("cleanGenerateLicense", "generateLicense", "dependencyTree", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
+                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds, "-PaddCopyrightsFromSource=" + addCopyrightsFromSource)
+                        .forTasks("cleanGenerateLicense", "generateLicense", "dependencyTree", "findCopyrights", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
                         .setStandardOutput(System.out)
                         .setStandardError(System.err)
                         .run()
