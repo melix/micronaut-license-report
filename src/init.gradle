@@ -354,7 +354,7 @@ abstract class LicenseReportText extends DefaultTask {
     }
 
     String deduplicate(String licenseText, String fromComponent) {
-        String normalized = licenseText.trim()
+        String normalized = licenseText.trim().replaceAll("[\\s\\{\\}\\[\\]\\(\\)]", "").replaceAll("https", "http")
         String cid = licenseToComponent[normalized]
         if (cid) {
             return "Same as " + removeVersion(cid)
