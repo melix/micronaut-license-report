@@ -332,7 +332,12 @@ abstract class LicenseReportText extends DefaultTask {
         } else {
             idx = connection.indexOf("github.com")
             if (idx > 0) {
-                String path = connection.substring(idx + 10).replaceAll(':', '/') - ".git"
+                String path = connection.substring(idx + 10).replaceAll(':', '/')
+                def gitIndex = path.indexOf(".git")
+                if(gitIndex > 0) {
+                    path = path.substring(0, gitIndex)
+                }
+                path -= ".git"
                 baseUri = "https://raw.githubusercontent.com/$path/master"
             }
         }
@@ -525,7 +530,7 @@ abstract class LicenseReportText extends DefaultTask {
     }
 
     void findCopyrightsForDep(String dep, String connection){
-        if(!includeCopyrights.get().booleanValue()){
+        if(connection == null || connection.trim().isEmpty()){
             return
         }
 
@@ -552,6 +557,10 @@ abstract class LicenseReportText extends DefaultTask {
 
         for(def dep in usableDeps){
             def conn = findConnection(dep)
+            def gitIndex = conn.lastIndexOf(".git")
+            if(gitIndex > 0) {
+                conn = conn.substring(0, gitIndex)
+            }
             findCopyrightsForDep(dep, conn)
         }
     }
@@ -562,6 +571,9 @@ abstract class LicenseReportText extends DefaultTask {
         }
 
         Set<String> copyrights = componentToCopyrights[id]
+        if(copyrights == null || copyrights.isEmpty()){
+            return
+        }
         writer.println("Copyrights")
         writer.println("----------")
         for(def copyright in copyrights){
@@ -977,6 +989,10 @@ abstract class FindConnections extends DefaultTask{
             idx = connection.indexOf("github.com")
             if (idx > 0) {
                 String path = connection.substring(idx + 10).replaceAll(':', '/')
+                def gitIndex = path.lastIndexOf(".git")
+                if(gitIndex > 0) {
+                    path = path.substring(0, gitIndex)
+                }
                 baseUri = "https://github.com/$path"
             }
         }
