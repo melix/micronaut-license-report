@@ -302,7 +302,13 @@ abstract class LicenseReportText extends DefaultTask {
         } else {
             idx = connection.indexOf("github.com")
             if (idx > 0) {
-                String path = connection.substring(idx + 10).replaceAll(':', '/') - ".git"
+                String path = connection.substring(idx + 10).replaceAll(':', '/')
+                //Added because of the micrometer dependency with the connection /googleapis/java-common-protos.git/proto-google-common-protos
+                def gitIndex = path.indexOf(".git")
+                if(gitIndex > 0) {
+                    path = path.substring(0, gitIndex)
+                }
+                path -= ".git"
                 baseUri = "https://raw.githubusercontent.com/$path/master"
             }
         }
@@ -319,7 +325,7 @@ abstract class LicenseReportText extends DefaultTask {
     }
 
     String deduplicate(String licenseText, String fromComponent) {
-        String normalized = licenseText.trim()
+        String normalized = licenseText.trim().replaceAll("[\\s\\{\\}\\[\\]\\(\\)]", "").replaceAll("https", "http")
         String cid = licenseToComponent[normalized]
         if (cid) {
             return "Same as " + removeVersion(cid)
