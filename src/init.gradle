@@ -58,7 +58,6 @@ rootProject {
         dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
         includeCopyrights.set(addCopyrightsFromSource)
         additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
-//        copyrightsFile = rootProject.layout.buildDirectory.file("copyrights_all.txt")
     }
 
     def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
@@ -108,7 +107,6 @@ rootProject {
                             dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                             includeCopyrights.set(addCopyrightsFromSource)
                             additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
-//                            copyrightsFile = rootProject.layout.buildDirectory.file("copyrights_${pub.groupId}:${pub.artifactId}.txt")
                         }
                         def licenseReportText = tasks.register("licenseReportText", LicenseReportText) {
                             dependsOn(findCopyrightsSubproject)
@@ -907,11 +905,8 @@ abstract class FindCopyrights extends DefaultTask{
 
     private Set<String> usableDeps = []
     private Map<String, String> componentToConnection = [:]
-//    private Map<String, Set<String>> componentToCopyrights = [:]
 
     private static final String COPYRIGHTS_FOR_DIR_FILENAME = "/copyrights_found.txt"
-//    private static final char COPYRIGHT_SEPARATOR = '^'
-//    private static final char DEP_TO_COPYRIGHT_SEPARATOR = '#'
 
     @InputFiles
     abstract RegularFileProperty getDependencyTreeFile()
@@ -1026,56 +1021,6 @@ abstract class FindCopyrights extends DefaultTask{
             }
         }
     }
-//
-//    void findCopyrightsForDeps(){
-//        for(def entry in componentToConnection){
-//            def dirName = entry.value.tokenize("/").last() - ".git"
-//            def checkoutDir = additionalCheckoutsDir.file("${dirName}").get().asFile
-//            def dep = entry.key
-//            def copyrights = []
-//            File copyrightsFile = new File(checkoutDir.absolutePath + COPYRIGHTS_FOR_DIR_FILENAME)
-//
-//            if(!copyrightsFile.exists()){
-//                return
-//            }
-//
-//            def lines = copyrightsFile.readLines()
-//            for(def line in lines){
-//                if(line.trim() != "") {
-//                    copyrights.add(line)
-//                }
-//            }
-//
-//            componentToCopyrights[dep] = copyrights
-//        }
-//    }
-//
-//    void printCopyrightsToCopyrightFile(){
-//        StringBuilder sb = new StringBuilder()
-//
-//        for(def entry in componentToCopyrights){
-//            def copyrights = entry.value
-//            if(copyrights.isEmpty()) {
-//                return
-//            }
-//
-//            sb.append("${entry.key}${DEP_TO_COPYRIGHT_SEPARATOR}")
-//            for(def copyright in copyrights){
-//                println(copyright)
-//                sb.append("${copyright}${COPYRIGHT_SEPARATOR}")
-//            }
-//
-//            sb.setLength(sb.length() - 1)
-//            sb.append("\n")
-//        }
-//
-//        println(sb.toString())
-//
-//        File copyrightsOutputFile = copyrightsFile.get().asFile
-//        copyrightsOutputFile.withWriter {writer ->
-//            writer.println(sb.toString())
-//        }
-//    }
 
     @TaskAction
     void execute(){
@@ -1089,7 +1034,5 @@ abstract class FindCopyrights extends DefaultTask{
         }
 
         checkoutReposAndGetCopyrights()
-//        findCopyrightsForDeps()
-//        printCopyrightsToCopyrightFile()
     }
 }
