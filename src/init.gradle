@@ -39,7 +39,7 @@ rootProject {
     def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
         Configuration config = project.getConfigurations().findByName("allCodeCoverageReportClassDirectories")
         if(config == null) {
-            config = project.getConfigurations().findByName("runtimeClasspath")
+            config = project.getConfigurations().findByName("javadocAggregatorClasspath")
         }
         rootComponent = config.getIncoming().getResolutionResult().getRoot()
         def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
@@ -53,7 +53,7 @@ rootProject {
             excludedDepsLogFile.get().asFile.delete()
     }
 
-    def findCopyrights = tasks.register("findCopyrights", FindConnections){
+    def findCopyrights = tasks.register("findCopyrights", FindCopyrights){
         dependsOn(dependencyTree)
         dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
         includeCopyrights.set(addCopyrightsFromSource)
@@ -103,7 +103,7 @@ rootProject {
                             dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                             excludedDepsLogFile = rootProject.layout.buildDirectory.file("licenses/excluded_dependencies.txt")
                         }
-                        def findCopyrightsSubproject = tasks.register("findCopyrights", FindConnections){
+                        def findCopyrightsSubproject = tasks.register("findCopyrights", FindCopyrights){
                             dependsOn(dependencyTreeSubproject)
                             dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
                             includeCopyrights.set(addCopyrightsFromSource)
@@ -140,11 +140,82 @@ rootProject {
 }
 
 
-static String moduleNameOf(String name) {
-    if (name.startsWith("micronaut-")) {
-        return name
+class UtilClass {
+    static String moduleNameOf(String name) {
+        if (name.startsWith("micronaut-")) {
+            return name
+        }
+        return "micronaut-$name"
     }
-    return "micronaut-$name"
+
+    static String findConnection(Project project, String dep){
+        def (String g, String a, String v) = dep.split(":")
+        ArtifactResolutionResult res = project.dependencies.createArtifactResolutionQuery()
+                .forModule(g, a, v)
+                .withArtifacts(MavenModule, MavenPomArtifact)
+                .execute()
+
+        def connection = null
+        res.resolvedComponents.each {
+            it.getArtifacts(MavenPomArtifact).each {
+                if (connection) {
+                    return
+                }
+
+                def xmlFile = it.file
+                def xml = new XmlSlurper().parse(xmlFile)
+                connection = xml.scm.connection ? xml.scm.connection[0].text() : ""
+
+                if (!connection) {
+                    if (xml.'parent'.groupId.text()) {
+                        def parentPom = "${xml.'parent'.groupId.text()}:${xml.'parent'.artifactId.text()}:${xml.'parent'.version.text()}"
+                        connection = findConnection(project, parentPom)
+                    }
+                }
+            }
+        }
+
+        return connection
+    }
+
+    static String findBaseUri(String connection) {
+        if (!connection) {
+            return null
+        }
+        String baseUri = null
+        def idx = connection.indexOf("http://bitbucket.org/")
+        if (idx == -1) {
+            idx = connection.indexOf("https://bitbucket.org/")
+        }
+        if (idx == -1) {
+            idx = connection.indexOf("https://gitlab.ow2.org/")
+        }
+        if (idx == -1) {
+            idx = connection.indexOf("http://gitbox.apache.org/")
+            if (idx != -1) {
+                //Changing the source site from gitbox to github by getting the name of the module from the connection,
+                // as it is easier to work with than gitbox
+                String path = "apache/" + connection.tokenize('/').last() - ".git"
+                baseUri = "https://raw.githubusercontent.com/$path/master"
+            }
+        }
+        if (idx > 0 && baseUri == null) {
+            baseUri = "${connection.substring(idx).replace('http:', 'https:')}/raw/master"
+        } else {
+            idx = connection.indexOf("github.com")
+            if (idx > 0) {
+                String path = connection.substring(idx + 10).replaceAll(':', '/')
+                //Added because of the micrometer dependency with the connection /googleapis/java-common-protos.git/proto-google-common-protos
+                def gitIndex = path.indexOf(".git")
+                if (gitIndex > 0) {
+                    path = path.substring(0, gitIndex)
+                }
+                path -= ".git"
+                baseUri = "https://raw.githubusercontent.com/$path/master"
+            }
+        }
+        return baseUri
+    }
 }
 
 abstract class ReportAggregator extends DefaultTask {
@@ -307,41 +378,7 @@ abstract class LicenseReportText extends DefaultTask {
     }
 
     String tryFetchLicense(String connection, String fromComponent) {
-        if (!connection) {
-            return
-        }
-        String baseUri = null
-        def idx = connection.indexOf("http://bitbucket.org/")
-        if (idx == -1) {
-            idx = connection.indexOf("https://bitbucket.org/")
-        }
-        if (idx == -1) {
-            idx = connection.indexOf("https://gitlab.ow2.org/")
-        }
-        if(idx == -1){
-            idx = connection.indexOf("http://gitbox.apache.org/")
-            if(idx != -1) {
-                //Changing the source site from gitbox to github by getting the name of the module from the connection,
-                // as it is easier to work with than gitbox
-                String path = "apache/" + connection.tokenize('/').last() - ".git"
-                baseUri = "https://raw.githubusercontent.com/$path/master"
-            }
-        }
-        if (idx > 0 && baseUri == null) {
-            baseUri = "${connection.substring(idx).replace('http:', 'https:')}/raw/master"
-        } else {
-            idx = connection.indexOf("github.com")
-            if (idx > 0) {
-                String path = connection.substring(idx + 10).replaceAll(':', '/')
-                def gitIndex = path.indexOf(".git")
-                if(gitIndex > 0) {
-                    path = path.substring(0, gitIndex)
-                }
-                path -= ".git"
-                baseUri = "https://raw.githubusercontent.com/$path/master"
-            }
-        }
-
+        def baseUri = UtilClass.findBaseUri(connection)
         if (baseUri) {
             String result = tryManyLicenses(baseUri, fromComponent)
             if (result) {
@@ -499,36 +536,6 @@ abstract class LicenseReportText extends DefaultTask {
         return false
     }
 
-    String findConnection(String dep){
-        def (String g, String a, String v) = dep.split(":")
-        ArtifactResolutionResult res = project.dependencies.createArtifactResolutionQuery()
-                .forModule(g, a, v)
-                .withArtifacts(MavenModule, MavenPomArtifact)
-                .execute()
-
-        def connection = null
-        res.resolvedComponents.each {
-            it.getArtifacts(MavenPomArtifact).each {
-                if(connection){
-                    return
-                }
-
-                def xmlFile = it.file
-                def xml = new XmlSlurper().parse(xmlFile)
-                connection = xml.scm.connection ? xml.scm.connection[0].text() : ""
-
-                if (!connection) {
-                    if (xml.'parent'.groupId.text()) {
-                        def parentPom = "${xml.'parent'.groupId.text()}:${xml.'parent'.artifactId.text()}:${xml.'parent'.version.text()}"
-                        connection = findConnection(parentPom)
-                    }
-                }
-            }
-        }
-
-        return connection
-    }
-
     void findCopyrightsForDep(String dep, String connection){
         if(connection == null || connection.trim().isEmpty()){
             return
@@ -556,7 +563,7 @@ abstract class LicenseReportText extends DefaultTask {
         }
 
         for(def dep in usableDeps){
-            def conn = findConnection(dep)
+            def conn = UtilClass.findConnection(project, dep)
             def gitIndex = conn.lastIndexOf(".git")
             if(gitIndex > 0) {
                 conn = conn.substring(0, gitIndex)
@@ -896,7 +903,7 @@ abstract class DependencyTree extends DefaultTask{
     }
 }
 
-abstract class FindConnections extends DefaultTask{
+abstract class FindCopyrights extends DefaultTask{
 
     private Set<String> usableDeps = []
     private Map<String, String> componentToConnection = [:]
@@ -932,74 +939,6 @@ abstract class FindConnections extends DefaultTask{
         return true
     }
 
-    String findConnection(String dep){
-        def (String g, String a, String v) = dep.split(":")
-        ArtifactResolutionResult res = project.dependencies.createArtifactResolutionQuery()
-                .forModule(g, a, v)
-                .withArtifacts(MavenModule, MavenPomArtifact)
-                .execute()
-
-        def connection = null
-        res.resolvedComponents.each {
-            it.getArtifacts(MavenPomArtifact).each {
-                if(connection){
-                    return
-                }
-
-                def xmlFile = it.file
-                def xml = new XmlSlurper().parse(xmlFile)
-                connection = xml.scm.connection ? xml.scm.connection[0].text() : ""
-
-                if (!connection) {
-                    if (xml.'parent'.groupId.text()) {
-                        def parentPom = "${xml.'parent'.groupId.text()}:${xml.'parent'.artifactId.text()}:${xml.'parent'.version.text()}"
-                        connection = findConnection(parentPom)
-                    }
-                }
-            }
-        }
-
-        return connection
-    }
-
-    String makeConnection(String connection){
-        if (!connection) {
-            return null
-        }
-        String baseUri = null
-        def idx = connection.indexOf("http://bitbucket.org/")
-        if (idx == -1) {
-            idx = connection.indexOf("https://bitbucket.org/")
-        }
-        if (idx == -1) {
-            idx = connection.indexOf("https://gitlab.ow2.org/")
-        }
-        if(idx == -1){
-            idx = connection.indexOf("http://gitbox.apache.org/")
-            if(idx != -1) {
-                //Changing the source site from gitbox to github by getting the name of the module from the connection,
-                // as it is easier to work with than gitbox
-                String path = "/apache/" + connection.tokenize('/').last()
-                baseUri = "https://github.com/$path"
-            }
-        }
-        if (idx > 0 && baseUri == null) {
-            baseUri = "${connection.substring(idx).replace('http:', 'https:')}"
-        } else {
-            idx = connection.indexOf("github.com")
-            if (idx > 0) {
-                String path = connection.substring(idx + 10).replaceAll(':', '/')
-                def gitIndex = path.lastIndexOf(".git")
-                if(gitIndex > 0) {
-                    path = path.substring(0, gitIndex)
-                }
-                baseUri = "https://github.com/$path"
-            }
-        }
-
-        return baseUri
-    }
-
     void mapCompToConnection(String compId, String connection){
         def normalizedCompId = compId.trim()
         def existingConn = componentToConnection[normalizedCompId]
@@ -1008,8 +947,10 @@ abstract class FindConnections extends DefaultTask{
             return
         }
 
-        String properConnection = makeConnection(connection)
-        if(properConnection != null) {
+        String properConnection = UtilClass.findBaseUri(connection)
+        if(properConnection != null && !properConnection.trim().isEmpty()) {
+            properConnection = properConnection - "/master" - "/raw" + ".git"
+            properConnection = properConnection.replaceAll("\\.githubusercontent", "/github")
             componentToConnection[normalizedCompId] = properConnection
         }
     }
@@ -1143,7 +1084,7 @@ abstract class FindConnections extends DefaultTask{
         }
 
         for(def dep in usableDeps){
-            def conn = findConnection(dep)
+            def conn = UtilClass.findConnection(project, dep)
             mapCompToConnection(dep, conn)
         }
 
