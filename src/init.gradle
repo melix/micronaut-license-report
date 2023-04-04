@@ -944,7 +944,10 @@ abstract class FindCopyrights extends DefaultTask{
 
         String properConnection = UtilClass.findBaseUri(connection)
         if(properConnection != null && !properConnection.trim().isEmpty()) {
-            properConnection = properConnection - "/master" - "/raw" + ".git"
+            properConnection = properConnection - "/master" - "/raw"
+            if(!properConnection.endsWith(".git")){
+                properConnection += ".git"
+            }
             properConnection = properConnection.replaceAll("\\.githubusercontent", "/github")
             componentToConnection[normalizedCompId] = properConnection
         }
