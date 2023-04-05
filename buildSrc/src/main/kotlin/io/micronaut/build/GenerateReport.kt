@@ -25,6 +25,10 @@ abstract class GenerateReport : DefaultTask() {
 
     @TaskAction
     fun report() {
+        val cloneOnly = providers.gradleProperty("cloneOnly").map(String::toBoolean).getOrElse(false)
+        if(cloneOnly){
+            return
+        }
         val initScriptPath = initScript.get().asFile.absolutePath
         println("Injecting init script $initScriptPath")
         val projectDir = projectDirectory.get().asFile
@@ -45,6 +49,9 @@ abstract class GenerateReport : DefaultTask() {
         } catch (e: Exception) {
             // We intentionally ignore the status of the build result
             System.err.println(e.message)
+        }
+        if(cloneOnly){
+            return
         }
         reportDirectory.get().asFile.run {
             mkdirs()
