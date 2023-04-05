@@ -50,9 +50,6 @@ abstract class GenerateReport : DefaultTask() {
             // We intentionally ignore the status of the build result
             System.err.println(e.message)
         }
-        if(cloneOnly){
-            return
-        }
         reportDirectory.get().asFile.run {
             mkdirs()
             val reportFile = File(projectDir, "build/reports/licenseReport/report.json")
