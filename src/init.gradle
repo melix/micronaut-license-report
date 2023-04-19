@@ -30,7 +30,8 @@ rootProject {
 
     def includeMicronautModulesProperty = providers.gradleProperty("includeMicronautModules").map(String::toBoolean).getOrElse(false)
     def excludedModuleIdsProperty = providers.gradleProperty("excludedModuleIds").getOrElse("")
-    def addCopyrightsFromSource = providers.gradleProperty("addCopyrightsFromSource").map(String::toBoolean).getOrElse(false)
+    def addCopyrightsFromSourceProperty = providers.gradleProperty("addCopyrightsFromSource").map(String::toBoolean).getOrElse(false)
+    def nettyNoticeProperty = providers.gradleProperty("nettyNotice").getOrElse("")
     def aggregator = rootProject.tasks.register("licenseReport", ReportAggregator) {
         jsonAggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
         mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
@@ -56,8 +57,9 @@ rootProject {
     def findCopyrights = tasks.register("findCopyrights", FindCopyrights){
         dependsOn(dependencyTree)
         dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
-        includeCopyrights.set(addCopyrightsFromSource)
+        includeCopyrights.set(addCopyrightsFromSourceProperty)
         additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
+        includeMicronautModules.set(includeMicronautModulesProperty)
     }
 
     def aggregatedText = tasks.register("licenseReportAggregatedText", LicenseReportText) {
@@ -67,8 +69,9 @@ rootProject {
         textReport = rootProject.layout.buildDirectory.file("licenses/all.txt")
         includeMicronautModules.set(includeMicronautModulesProperty)
         excludedModuleIds.set(excludedModuleIdsProperty)
-        includeCopyrights.set(addCopyrightsFromSource)
+        includeCopyrights.set(addCopyrightsFromSourceProperty)
         additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
+        nettyNoticePath.set(nettyNoticeProperty)
     }
 
     allprojects {
@@ -105,8 +108,9 @@ rootProject {
                         def findCopyrightsSubproject = tasks.register("findCopyrights", FindCopyrights){
                             dependsOn(dependencyTreeSubproject)
                             dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_${pub.groupId}:${pub.artifactId}.txt")
-                            includeCopyrights.set(addCopyrightsFromSource)
+                            includeCopyrights.set(addCopyrightsFromSourceProperty)
                             additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
+                            includeMicronautModules.set(includeMicronautModulesProperty)
                         }
                         def licenseReportText = tasks.register("licenseReportText", LicenseReportText) {
                             dependsOn(findCopyrightsSubproject)
@@ -115,7 +119,7 @@ rootProject {
                             textReport = rootProject.layout.buildDirectory.file("licenses/${pub.groupId}:${pub.artifactId}.txt")
                             includeMicronautModules.set(includeMicronautModulesProperty)
                             excludedModuleIds.set(excludedModuleIdsProperty)
-                            includeCopyrights.set(addCopyrightsFromSource)
+                            includeCopyrights.set(addCopyrightsFromSourceProperty)
                             additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
                             def modules = configurations.runtimeClasspath
                                     .incoming
@@ -129,6 +133,7 @@ rootProject {
                                 micronautModules.addAll(modules)
                             }
                             micronautModules.set(modules)
+                            nettyNoticePath.set(nettyNoticeProperty)
                         }
                     }
                 }
@@ -213,6 +218,18 @@ class UtilClass {
             }
         }
         return baseUri
+    }
+
+    static String makeDirName(String path){
+        def split = path.tokenize("/")
+        def dirName = split.last() - ".git"
+        if(dirName == ""){
+            if(split.size() < 2){
+                return null;
+            }
+            dirName = split[split.size() - 2]
+        }
+        return dirName
     }
 }
 
@@ -371,6 +388,9 @@ abstract class LicenseReportText extends DefaultTask {
     @Input
     abstract Property<Boolean> getIncludeCopyrights()
 
+    @Input
+    abstract Property<String> getNettyNoticePath()
+
     LicenseReportText() {
         rootDir.set(project.rootProject.layout.projectDirectory)
     }
@@ -407,6 +427,13 @@ abstract class LicenseReportText extends DefaultTask {
         idForDisplay
     }
 
+    StringBuilder appendLicense(String txt, String fn, String fromComponent, StringBuilder sb){
+        sb.append("${fn}\n")
+        sb.append("-" * fn.length()).append("\n")
+        sb.append(deduplicate(txt, fromComponent)).append("\n\n")
+        return sb
+    }
+
     StringBuilder tryManyLicensesJackson(String baseUri, String fromComponent, Set<String> seen, StringBuilder sb){
         if(fromComponent.contains("jackson-modules-java8")) {
             baseUri = baseUri - "/master" + "/2.14"
@@ -419,18 +446,35 @@ abstract class LicenseReportText extends DefaultTask {
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
             if (txt) {
-                sb.append("${fn}\n")
-                sb.append("-" * fn.length()).append("\n")
-                sb.append(deduplicate(txt, fromComponent)).append("\n\n")
+                sb = appendLicense(txt, fn, fromComponent, sb)
                 seen.add(fileName)
             }
         }
         return sb
     }
 
+    String findNettyNotice(){
+        def nettyNoticePathStr = nettyNoticePath.get()
+        if(nettyNoticePathStr == ""){
+            return ""
+        }
+        def nettyNoticeFile = new File(nettyNoticePathStr)
+        if(!nettyNoticeFile.exists()){
+            return ""
+        }
+        return nettyNoticeFile.text
+    }
+
     String tryManyLicenses(String baseUri, String fromComponent) {
         StringBuilder sb = new StringBuilder()
         Set<String> seen = []
+        if(fromComponent.contains("netty")){
+            def txt = findNettyNotice()
+            if(txt){
+                sb = appendLicense(txt, "NOTICE", fromComponent, sb)
+                seen.add("notice")
+            }
+        }
         [LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
             String fileName = f.toLowerCase()
             if(seen.contains(fileName)) {
@@ -439,9 +483,7 @@ abstract class LicenseReportText extends DefaultTask {
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
             if (txt) {
-                sb.append("${fn}\n")
-                sb.append("-" * fn.length()).append("\n")
-                sb.append(deduplicate(txt, fromComponent)).append("\n\n")
+                sb = appendLicense(txt, fn, fromComponent, sb)
                 seen.add(fileName)
             }
         }
@@ -540,7 +582,10 @@ abstract class LicenseReportText extends DefaultTask {
         }
 
         Set<String> copyrights = []
-        def dirName = connection.tokenize("/").last() - ".git"
+        def dirName = UtilClass.makeDirName(connection)
+        if(dirName == null){
+            return
+        }
         def copyrightsFile = new File("${additionalCheckoutsDir.get().asFile.absolutePath}/${dirName}${COPYRIGHTS_FOR_DIR_FILENAME}")
 
         if(!copyrightsFile.exists()){
@@ -652,6 +697,8 @@ abstract class LicenseReportText extends DefaultTask {
                     } else {
                         writer.println("LICENSE file not found")
                     }
+                    writer.println()
+                    printCopyrights(compId, writer)
                     return
                 }
                 Set<String> usedModuleIds = []
@@ -917,6 +964,9 @@ abstract class FindCopyrights extends DefaultTask{
     @Input
     abstract Property<Boolean> getIncludeCopyrights()
 
+    @Input
+    abstract Property<Boolean> getIncludeMicronautModules()
+
     boolean findUsableDepsFromTree(){
         File depTreeFile = dependencyTreeFile.get().asFile
         if(!depTreeFile.exists()) {
@@ -936,8 +986,11 @@ abstract class FindCopyrights extends DefaultTask{
 
     void mapCompToConnection(String compId, String connection){
         def normalizedCompId = compId.trim()
-        def existingConn = componentToConnection[normalizedCompId]
+        if(!includeMicronautModules.get() && normalizedCompId.startsWith("io.micronaut")){
+            return
+        }
 
+        def existingConn = componentToConnection[normalizedCompId]
         if(existingConn) {
             return
         }
@@ -945,6 +998,9 @@ abstract class FindCopyrights extends DefaultTask{
         String properConnection = UtilClass.findBaseUri(connection)
         if(properConnection != null && !properConnection.trim().isEmpty()) {
             properConnection = properConnection - "/master" - "/raw"
+            if(properConnection.endsWith("/")){
+                properConnection = properConnection.substring(0, properConnection.length() - 1)
+            }
             if(!properConnection.endsWith(".git")){
                 properConnection += ".git"
             }
@@ -955,9 +1011,12 @@ abstract class FindCopyrights extends DefaultTask{
 
     void checkoutReposAndGetCopyrights(){
         for(def entry in componentToConnection){
-            def dirName = entry.value.tokenize("/").last() - ".git"
-            def checkoutDir = additionalCheckoutsDir.file("${dirName}").get().asFile
+            def dirName = UtilClass.makeDirName(entry.value)
+            if(dirName == null){
+                continue
+            }
 
+            def checkoutDir = additionalCheckoutsDir.file("${dirName}").get().asFile
             if(!checkoutDir.exists()){
                 tryCheckout(entry.value, checkoutDir)
             }
@@ -997,23 +1056,25 @@ abstract class FindCopyrights extends DefaultTask{
                 return
             }
 
-            def copyrightFoundFlag = false
-            def lines = file.readLines()
-            for(def line in lines) {
-                def normalizedLine = line.replaceAll("[\\/\\*]", '').trim()
-                def lineToCompare = normalizedLine.replaceAll("[^a-zA-Z]", "").toLowerCase()
+            file.withReader { r ->
+                def copyrightFoundFlag = false
+                def line
+                while ((line = r.readLine()) != null) {
+                    def normalizedLine = line.replaceAll("[\\/\\*]", '').trim()
+                    def lineToCompare = normalizedLine.replaceAll("[^a-zA-Z]", "").toLowerCase()
 
-                if (normalizedLine.toLowerCase().startsWith("copyright")) {
-                    if(copyrightsToCompare.add(lineToCompare)) {
-                        actualCopyrights.add(normalizedLine)
+                    if (normalizedLine.toLowerCase().startsWith("copyright")) {
+                        if (copyrightsToCompare.add(lineToCompare)) {
+                            actualCopyrights.add(normalizedLine)
+                        }
+                        copyrightFoundFlag = true
+                    } else if (copyrightFoundFlag) {
+                        break
                     }
-                    copyrightFoundFlag = true
-                } else if (copyrightFoundFlag) {
-                    break
-                }
 
-                if (normalizedLine.toLowerCase().contains("package")){
-                    break
+                    if (normalizedLine.toLowerCase().contains("package")) {
+                        break
+                    }
                 }
             }
 

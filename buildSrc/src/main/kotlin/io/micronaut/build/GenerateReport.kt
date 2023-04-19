@@ -35,15 +35,18 @@ abstract class GenerateReport : DefaultTask() {
         val includeMicronautModules = providers.gradleProperty("includeMicronautModules").map(String::toBoolean).getOrElse(false)
         val excludedModuleIds = providers.gradleProperty("excludedModuleIds").getOrElse("")
         val addCopyrightsFromSource = providers.gradleProperty("addCopyrightsFromSource").map(String::toBoolean).getOrElse(false)
+        val nettyNotice = providers.gradleProperty("nettyNotice").getOrElse("")
+        val heapSize = providers.gradleProperty("heapSize").getOrElse("512")
         try {
             GradleConnector.newConnector()
                     .forProjectDirectory(projectDir)
                     .connect().use {
                     it.newBuild()
-                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds, "-PaddCopyrightsFromSource=" + addCopyrightsFromSource)
+                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds, "-PaddCopyrightsFromSource=" + addCopyrightsFromSource, "-PnettyNotice=" + nettyNotice)
                         .forTasks("cleanGenerateLicense", "generateLicense", "dependencyTree", "findCopyrights", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
                         .setStandardOutput(System.out)
                         .setStandardError(System.err)
+                        .addJvmArguments("-Xmx${heapSize}m")
                         .run()
                     }
         } catch (e: Exception) {
