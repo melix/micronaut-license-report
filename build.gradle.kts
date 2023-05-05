@@ -21,7 +21,7 @@ licenseReports {
             "micronaut-gcp",
             "micronaut-starter",
             "micronaut-jms",
-            "micronaut-kubernetes",
+            "micronaut-kubernetes@v4.0.0",
             "micronaut-aws",
             "micronaut-cache@v3.5.0",
             "micronaut-grpc",
