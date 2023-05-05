@@ -621,10 +621,6 @@ abstract class LicenseReportText extends DefaultTask {
         }
 
         def mnCopyrightsFile = micronautCopyrightsFile.get().asFile
-        if (!mnCopyrightsFile.exists()) {
-            return
-        }
-
         def lines = mnCopyrightsFile.readLines()
         for (def line in lines) {
             mnCopyrights.add(line)
