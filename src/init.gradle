@@ -647,9 +647,10 @@ abstract class LicenseReportText extends DefaultTask {
     }
 
     void printStartLicense(Writer writer) {
+        writer.println()
         if (apacheLicenseFile.isPresent()) {
             def apacheLicense = apacheLicenseFile.get().asFile.text
-            writer.println(deduplicate(apacheLicense, "root project"))
+            writer.println(deduplicate(apacheLicense, "above listed license"))
             writer.println()
         }
         writer.println(START_COPYRIGHTS)

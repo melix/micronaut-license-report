@@ -7,3 +7,4 @@ jackson-annotations
 bom
 junit
 spock
+core-processor
