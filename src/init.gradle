@@ -37,12 +37,16 @@ rootProject {
         mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
     }
 
-    def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
-        Configuration config = project.getConfigurations().findByName("allCodeCoverageReportClassDirectories")
-        if(config == null) {
-            config = project.getConfigurations().findByName("javadocAggregatorClasspath")
+    def allModulesRuntimeClasspath = rootProject.configurations.create("allRuntimeClasspath") {
+        canBeResolved = true
+        canBeConsumed = false
+        attributes {
+            attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
         }
-        rootComponent = config.getIncoming().getResolutionResult().getRoot()
+    }
+
+    def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
+        rootComponent = allModulesRuntimeClasspath.getIncoming().getResolutionResult().getRoot()
         def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
         def excludedDeps = new File(parentDir + "/src/resources/excluded_deps.txt")
         if(excludedDeps.exists()) {
@@ -82,6 +86,7 @@ rootProject {
     allprojects {
         pluginManager.withPlugin('java') {
             pluginManager.withPlugin('maven-publish') {
+                allModulesRuntimeClasspath.dependencies.add(project.dependencies.create(project))
                 publishing {
                     publications.withType(MavenPublication).configureEach { pub ->
                         def singleReport = tasks.register("generateLicense", com.github.vlsi.gradle.license.GatherLicenseTask) {
