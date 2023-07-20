@@ -878,7 +878,6 @@ abstract class DependencyTree extends DefaultTask{
                                               String beforeComponent,
                                               StringBuilder sb){
 
-        println(root.id.displayName)
         Set<DependencyResult> dependencies = root.getDependencies()
         Set<ComponentIdentifier> seenBranch = []
         sb = printDependency(root, beforeComponent, sb, false, depth, dependencies.isEmpty())
