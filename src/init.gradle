@@ -76,6 +76,11 @@ rootProject {
         includeCopyrights.set(addCopyrightsFromSourceProperty)
         additionalCheckoutsDir = rootProject.objects.directoryProperty().convention(rootProject.layout.buildDirectory.dir("additional-checkouts"))
         nettyNoticePath.set(nettyNoticeProperty)
+        def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
+        def mnCopyrights = new File(parentDir + "/src/resources/mn_copyrights.txt")
+        if(mnCopyrights.exists()) {
+            micronautCopyrightsFile = mnCopyrights
+        }
     }
 
     allprojects {
@@ -139,6 +144,11 @@ rootProject {
                             }
                             micronautModules.set(modules)
                             nettyNoticePath.set(nettyNoticeProperty)
+                            def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
+                            def mnCopyrights = new File(parentDir + "/src/resources/mn_copyrights.txt")
+                            if(mnCopyrights.exists()) {
+                                micronautCopyrightsFile = mnCopyrights
+                            }
                         }
                     }
                 }
@@ -364,6 +374,7 @@ abstract class LicenseReportText extends DefaultTask {
     private Map<String, String> licenseToComponent = [:]
     private Set<String> usableDeps = []
     private Map<String, Set<String>> componentToCopyrights = [:]
+    private Set<String> mnCopyrights = []
 
     @InputFile
     abstract RegularFileProperty getXmlReport()
@@ -395,6 +406,10 @@ abstract class LicenseReportText extends DefaultTask {
 
     @Input
     abstract Property<String> getNettyNoticePath()
+
+    @Optional
+    @InputFile
+    abstract RegularFileProperty getMicronautCopyrightsFile()
 
     LicenseReportText() {
         rootDir.set(project.rootProject.layout.projectDirectory)
@@ -605,6 +620,18 @@ abstract class LicenseReportText extends DefaultTask {
         componentToCopyrights[dep] = copyrights
     }
 
+    void findMicronautCopyrights() {
+        if (!micronautCopyrightsFile.isPresent()) {
+            return
+        }
+
+        def mnCopyrightsFile = micronautCopyrightsFile.get().asFile
+        def lines = mnCopyrightsFile.readLines()
+        for (def line in lines) {
+            mnCopyrights.add(line)
+        }
+    }
+
     void findCopyrights(){
         if(!includeCopyrights.get().booleanValue()){
             return
@@ -618,6 +645,8 @@ abstract class LicenseReportText extends DefaultTask {
             }
             findCopyrightsForDep(dep, conn)
         }
+
+        findMicronautCopyrights()
     }
 
     void printCopyrights(String id, Writer writer){
@@ -627,7 +656,11 @@ abstract class LicenseReportText extends DefaultTask {
 
         Set<String> copyrights = componentToCopyrights[id]
         if(copyrights == null || copyrights.isEmpty()){
-            return
+            if (id.startsWith("io.micronaut")){
+                copyrights = mnCopyrights
+            } else {
+                return
+            }
         }
         writer.println("Copyrights")
         writer.println("----------")
