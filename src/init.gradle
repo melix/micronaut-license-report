@@ -54,8 +54,9 @@ rootProject {
         }
         dependencyTreeReport = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
         excludedDepsLogFile = rootProject.layout.buildDirectory.file("licenses/excluded_dependencies.txt")
-        if(excludedDepsLogFile.get().asFile.exists())
+        if(excludedDepsLogFile.get().asFile.exists()) {
             excludedDepsLogFile.get().asFile.delete()
+        }
     }
 
     def findCopyrights = tasks.register("findCopyrights", FindCopyrights){
@@ -80,6 +81,10 @@ rootProject {
         def mnCopyrights = new File(parentDir + "/src/resources/mn_copyrights.txt")
         if(mnCopyrights.exists()) {
             micronautCopyrightsFile = mnCopyrights
+        }
+        def apacheLicense = new File(parentDir + "/src/resources/apache_license.txt")
+        if (apacheLicense.exists()) {
+            apacheLicenseFile = apacheLicense
         }
     }
 
@@ -148,6 +153,10 @@ rootProject {
                             def mnCopyrights = new File(parentDir + "/src/resources/mn_copyrights.txt")
                             if(mnCopyrights.exists()) {
                                 micronautCopyrightsFile = mnCopyrights
+                            }
+                            def apacheLicense = new File(parentDir + "/src/resources/apache_license.txt")
+                            if (apacheLicense.exists()) {
+                                apacheLicenseFile = apacheLicense
                             }
                         }
                     }
@@ -356,6 +365,7 @@ abstract class ReportAggregator extends DefaultTask {
 abstract class LicenseReportText extends DefaultTask {
     public static final String LICENSE_LIST_HEADER = "LICENSES LIST"
     private static final String NOT_FOUND = "License unavailable"
+    private static final String START_COPYRIGHTS = "Copyright 2017-2023 original authors"
     private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
     private static final String[] JACKSON_LICENSE_FILE_PATHS = ["datatypes/src/main/resources/META-INF/", "dataformat/src/main/resources/META-INF/"]
     private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "License", "license", "NOTICE", "Notice", "notice", "COPYRIGHT", "Copyright", "copyright", "LGPL2.1"]
@@ -410,6 +420,10 @@ abstract class LicenseReportText extends DefaultTask {
     @Optional
     @InputFile
     abstract RegularFileProperty getMicronautCopyrightsFile()
+
+    @Optional
+    @InputFile
+    abstract RegularFileProperty getApacheLicenseFile()
 
     LicenseReportText() {
         rootDir.set(project.rootProject.layout.projectDirectory)
@@ -632,6 +646,17 @@ abstract class LicenseReportText extends DefaultTask {
         }
     }
 
+    void printStartLicense(Writer writer) {
+        if (apacheLicenseFile.isPresent()) {
+            def apacheLicense = apacheLicenseFile.get().asFile.text
+            writer.println(deduplicate(apacheLicense, "root project"))
+            writer.println()
+        }
+        writer.println(START_COPYRIGHTS)
+        writer.println("-" * START_COPYRIGHTS.length())
+        writer.println()
+    }
+
     void findCopyrights(){
         if(!includeCopyrights.get().booleanValue()){
             return
@@ -716,6 +741,7 @@ abstract class LicenseReportText extends DefaultTask {
             components.each {
                 writer.println(it)
             }
+            printStartLicense(writer)
             writer.println()
             writer.println(LICENSE_LIST_HEADER)
             writer.println("-------------")
