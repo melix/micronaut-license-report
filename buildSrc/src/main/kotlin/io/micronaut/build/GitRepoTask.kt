@@ -1,6 +1,7 @@
 package io.micronaut.build
 
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.api.errors.NoHeadException
 import org.eclipse.jgit.util.FileUtils
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
@@ -34,29 +35,33 @@ abstract class GitRepoTask : DefaultTask() {
             println("Deleting ${repoDirectory.get()}")
             FileUtils.delete(repoDir, 1)
         }
-        if(repoDir.exists() && changedDepVersions) {
+        if (repoDir.exists() && changedDepVersions) {
             return
         }
         if (repoDir.exists() && File(repoDir, ".git").exists()) {
             println("Updating ${uri.get()}")
-            Git.open(repoDir)
+            try {
+                Git.open(repoDir)
                     .checkout()
                     .setName(branch.get())
                     .call()
-            Git.open(repoDir)
+                Git.open(repoDir)
                     .pull()
                     .setRebase(true)
                     .call()
+            } catch (ex: Exception) {
+                System.err.println("Warning: $ex")
+            }
         } else {
             if (repoDir.exists()) {
                 repoDir.delete()
             }
             println("Checking out ${uri.get()} branch ${branch.get()} in ${repoDirectory.get().asFile}")
             Git.cloneRepository()
-                    .setURI(uri.get())
-                    .setBranch(branch.get())
-                    .setDirectory(repoDir)
-                    .call()
+                .setURI(uri.get())
+                .setBranch(branch.get())
+                .setDirectory(repoDir)
+                .call()
         }
     }
 }
