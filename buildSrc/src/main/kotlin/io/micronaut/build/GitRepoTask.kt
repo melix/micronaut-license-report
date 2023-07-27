@@ -29,12 +29,12 @@ abstract class GitRepoTask : DefaultTask() {
     fun doGit() {
         val repoDir = repoDirectory.get().asFile
         val cleanupGitRepo = providers.gradleProperty("cleanupGitRepo").map(String::toBoolean).getOrElse(false)
-        val changedDepVersions = providers.gradleProperty("changedDepVersions").map(String::toBoolean).getOrElse(false)
+        val skipCheckouts = providers.gradleProperty("skipCheckouts").map(String::toBoolean).getOrElse(false)
         if (cleanupGitRepo && repoDir.exists() && File(repoDir, ".git").exists()) {
             println("Deleting ${repoDirectory.get()}")
             FileUtils.delete(repoDir, 1)
         }
-        if(repoDir.exists() && changedDepVersions) {
+        if(repoDir.exists() && skipCheckouts) {
             return
         }
         if (repoDir.exists() && File(repoDir, ".git").exists()) {
