@@ -86,6 +86,10 @@ rootProject {
         if (apacheLicense.exists()) {
             apacheLicenseFile = apacheLicense
         }
+        def fastDoubleParser = new File(parentDir + "/src/resources/FastDoubleParser.txt")
+        if (fastDoubleParser.exists()) {
+            fastDoubleParserFile = fastDoubleParser
+        }
     }
 
     allprojects {
@@ -158,6 +162,10 @@ rootProject {
                             if (apacheLicense.exists()) {
                                 apacheLicenseFile = apacheLicense
                             }
+                            def fastDoubleParser = new File(parentDir + "/src/resources/FastDoubleParser.txt")
+                            if (fastDoubleParser.exists()) {
+                                fastDoubleParserFile = fastDoubleParser
+                            }
                         }
                     }
                 }
@@ -219,6 +227,9 @@ class UtilClass {
         }
         if (idx == -1) {
             idx = connection.indexOf("http://gitbox.apache.org/")
+            if (idx == -1) {
+                idx = connection.indexOf("https://gitbox.apache.org/")
+            }
             if (idx != -1) {
                 //Changing the source site from gitbox to github by getting the name of the module from the connection,
                 // as it is easier to work with than gitbox
@@ -367,8 +378,9 @@ abstract class LicenseReportText extends DefaultTask {
     private static final String NOT_FOUND = "License unavailable"
     private static final String START_COPYRIGHTS = "Copyright 2017-2023 original authors"
     private static final String[] LICENSE_FILE_PATHS = ["", "src/main/resources/META-INF/"]
-    private static final String[] JACKSON_LICENSE_FILE_PATHS = ["datatypes/src/main/resources/META-INF/", "dataformat/src/main/resources/META-INF/"]
+    private static final String[] JACKSON_LICENSE_FILE_PATHS = ["datatypes/src/main/resources/META-INF/", "dataformat/src/main/resources/META-INF/", "src/main/resources/META-INF/"]
     private static final String[] LICENSE_FILE_NAMES = ["LICENSE", "License", "license", "NOTICE", "Notice", "notice", "COPYRIGHT", "Copyright", "copyright", "LGPL2.1"]
+    private static final String[] JACKSON_LICENSE_FILE_NAMES = LICENSE_FILE_NAMES + ["jackson-core-LICENSE", "jackson-core-NOTICE"]
     private static final String[] LICENSE_FILE_EXTENSIONS = ["", "md", "txt"]
     private static final String COPYRIGHTS_FOR_DIR_FILENAME = "/copyrights_found.txt"
 
@@ -425,6 +437,10 @@ abstract class LicenseReportText extends DefaultTask {
     @InputFile
     abstract RegularFileProperty getApacheLicenseFile()
 
+    @Optional
+    @InputFile
+    abstract RegularFileProperty getFastDoubleParserFile()
+
     LicenseReportText() {
         rootDir.set(project.rootProject.layout.projectDirectory)
     }
@@ -472,7 +488,7 @@ abstract class LicenseReportText extends DefaultTask {
         if(fromComponent.contains("jackson-modules-java8")) {
             baseUri = baseUri - "/master" + "/2.14"
         }
-        [JACKSON_LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
+        [JACKSON_LICENSE_FILE_PATHS, JACKSON_LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
             String fileName = f.toLowerCase()
             if(seen.contains(fileName)) {
                 return
@@ -693,7 +709,17 @@ abstract class LicenseReportText extends DefaultTask {
         for(def copyright in copyrights){
             writer.println(copyright)
         }
-        writer.print("\n\n")
+        writer.print()
+    }
+
+    void printFastDoubleParserLicense(Writer writer) {
+        if (!fastDoubleParserFile.isPresent()) {
+            return
+        }
+
+        def text = fastDoubleParserFile.asFile.get().text
+        writer.println(text)
+        writer.println()
     }
 
     @TaskAction
@@ -821,6 +847,10 @@ abstract class LicenseReportText extends DefaultTask {
                     }
 
                     printCopyrights(id, writer)
+                    if (id.contains("jackson-core")) {
+                        printFastDoubleParserLicense(writer)
+                    }
+                    writer.println()
                 }
 
             }
