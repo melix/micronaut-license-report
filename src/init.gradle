@@ -709,7 +709,7 @@ abstract class LicenseReportText extends DefaultTask {
         for(def copyright in copyrights){
             writer.println(copyright)
         }
-        writer.print()
+        writer.println()
     }
 
     void printFastDoubleParserLicense(Writer writer) {
