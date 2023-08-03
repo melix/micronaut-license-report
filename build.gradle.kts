@@ -8,7 +8,7 @@ licenseReports {
             "micronaut-rxjava3",
             "micronaut-docs",
             "micronaut-reactor@v2.5.0",
-            "micronaut-sql@v4.7.2",
+            "micronaut-sql@v5.0.1",
             "micronaut-guides",
             "micronaut-data@v3.9.6",
             "micronaut-build",
@@ -63,7 +63,7 @@ licenseReports {
             "micronaut-camel",
             "micronaut-build-plugins",
     ).filter {
-      it.contains("micronaut-core")
+      it.contains("micronaut-sql")
     }.map {
         val (name, branch) = if (it.contains('@')) {
             it.split('@')
