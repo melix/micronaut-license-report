@@ -1091,6 +1091,9 @@ abstract class FindCopyrights extends DefaultTask{
     void tryCheckout(String connection, File checkoutDir){
         def gitRepo = null
         try {
+            // Clean up the connection URL to avoid double slashes
+            connection = connection.replaceAll("https://github.com//", "https://github.com/")
+            
             println("Checking out repository ${connection} in ${checkoutDir.absolutePath}")
             gitRepo = Git.cloneRepository()
                     .setURI(connection)
