@@ -206,43 +206,79 @@ class UtilClass {
     }
 
     static String findBaseUri(String connection) {
-        if (!connection) {
-            return null
-        }
-        String baseUri = null
-        def idx = connection.indexOf("http://bitbucket.org/")
-        if (idx == -1) {
-            idx = connection.indexOf("https://bitbucket.org/")
-        }
-        if (idx == -1) {
-            idx = connection.indexOf("https://gitlab.ow2.org/")
-        }
-        if (idx == -1) {
-            idx = connection.indexOf("http://gitbox.apache.org/")
-            if (idx != -1) {
-                //Changing the source site from gitbox to github by getting the name of the module from the connection,
-                // as it is easier to work with than gitbox
-                String path = "apache/" + connection.tokenize('/').last() - ".git"
-                baseUri = "https://raw.githubusercontent.com/$path/master"
-            }
-        }
-        if (idx > 0 && baseUri == null) {
-            baseUri = "${connection.substring(idx).replace('http:', 'https:')}/raw/master"
-        } else {
-            idx = connection.indexOf("github.com")
-            if (idx > 0) {
-                String path = connection.substring(idx + 10).replaceAll(':', '/')
-                //Added because of the micrometer dependency with the connection /googleapis/java-common-protos.git/proto-google-common-protos
-                def gitIndex = path.indexOf(".git")
-                if (gitIndex > 0) {
-                    path = path.substring(0, gitIndex)
-                }
-                path -= ".git"
-                baseUri = "https://raw.githubusercontent.com/$path/master"
-            }
-        }
-        return baseUri
+    if (!connection) {
+        return null
     }
+
+    String baseUri = null
+
+    def idx = connection.indexOf("http://bitbucket.org/")
+    if (idx == -1) {
+        idx = connection.indexOf("https://bitbucket.org/")
+    }
+
+    if (idx == -1) {
+        idx = connection.indexOf("https://gitlab.ow2.org/")
+    }
+
+    if (idx == -1) {
+        idx = connection.indexOf("http://gitbox.apache.org/")
+        if (idx != -1) {
+            String path = "apache/" + connection.tokenize('/').last() - ".git"
+            baseUri = "https://raw.githubusercontent.com/$path/master"
+        }
+    }
+
+    if (idx == -1) {
+        idx = connection.indexOf("https://gitbox.apache.org/")
+        if (idx != -1) {
+            String path = "apache/" + connection.tokenize('/').last() - ".git"
+            baseUri = "https://raw.githubusercontent.com/$path/master"
+        }
+    }
+
+    if (idx == -1) {
+        idx = connection.indexOf("https://git-wip-us.apache.org/")
+        if (idx != -1) {
+            String path = "apache/" + connection.tokenize('/').last() - ".git"
+            baseUri = "https://raw.githubusercontent.com/$path/master"
+        }
+    }
+
+    if (idx == -1) {
+        idx = connection.indexOf("http://svn.apache.org/")
+        if (idx != -1) {
+            String path = "apache/" + connection.tokenize('/').last()
+            baseUri = "https://raw.githubusercontent.com/$path/master"
+        }
+    }
+
+    if (idx == -1) {
+        idx = connection.indexOf("https://code.google.com/")
+        if (idx != -1) {
+            String path = connection.tokenize('/').last()
+            baseUri = "https://raw.githubusercontent.com/google/$path/master"
+        }
+    }
+
+    if (idx > 0 && baseUri == null) {
+        baseUri = "${connection.substring(idx).replace('http:', 'https:')}/raw/master"
+    } else {
+        idx = connection.indexOf("github.com")
+        if (idx > 0) {
+            String path = connection.substring(idx + 10).replaceAll(':', '/')
+            // Added because of the micrometer dependency with the connection /googleapis/java-common-protos.git/proto-google-common-protos
+            def gitIndex = path.indexOf(".git")
+            if (gitIndex > 0) {
+                path = path.substring(0, gitIndex)
+            }
+            path -= ".git"
+            baseUri = "https://raw.githubusercontent.com/$path/master"
+        }
+    }
+
+    return baseUri
+}
 
     static String makeDirName(String path){
         def split = path.tokenize("/")
@@ -1091,6 +1127,9 @@ abstract class FindCopyrights extends DefaultTask{
     void tryCheckout(String connection, File checkoutDir){
         def gitRepo = null
         try {
+            // Clean up the connection URL to avoid double slashes
+            connection = connection.replaceAll("https://github.com//", "https://github.com/")
+            
             println("Checking out repository ${connection} in ${checkoutDir.absolutePath}")
             gitRepo = Git.cloneRepository()
                     .setURI(connection)
