@@ -42,7 +42,7 @@ abstract class GenerateReport : DefaultTask() {
                     .forProjectDirectory(projectDir)
                     .connect().use {
                     it.newBuild()
-                        .withArguments("-I", initScriptPath, "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds, "-PaddCopyrightsFromSource=" + addCopyrightsFromSource, "-PnettyNotice=" + nettyNotice)
+                        .withArguments("-I", initScriptPath, "-S", "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds, "-PaddCopyrightsFromSource=" + addCopyrightsFromSource, "-PnettyNotice=" + nettyNotice)
                         .forTasks("cleanGenerateLicense", "generateLicense", "dependencyTree", "findCopyrights", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
                         .setStandardOutput(System.out)
                         .setStandardError(System.err)
