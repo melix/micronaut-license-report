@@ -11,20 +11,20 @@ licenseReports {
     }
 
     listOf(
-            "micronaut-openapi@v6.11.0"
+            "micronaut-core@v4.6.3"
     ).filter {
         !repositoryNames.contains(it.split('@').first())
     }.plus(
         checkoutRepositories
     ).filter {
-      it.contains("micronaut")
+      it.contains("micronaut-core")
     }.map {
         val (name, branch) = if (it.contains('@')) {
             it.split('@')
         } else {
             listOf(it, "master")
         }
-        Pair("https://github.com/micronaut-projects/${name}.git", branch.trim())
+        Pair("https://github.com/micronaut-projects/${name}.git", branch)
     }.forEach {
         checkout(it.first, it.second)
     }

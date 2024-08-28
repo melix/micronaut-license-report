@@ -184,33 +184,38 @@ class UtilClass {
     }
 
     static String findConnection(Project project, String dep){
-        def (String g, String a, String v) = dep.split(":")
-        ArtifactResolutionResult res = project.dependencies.createArtifactResolutionQuery()
-                .forModule(g, a, v)
-                .withArtifacts(MavenModule, MavenPomArtifact)
-                .execute()
+        def (String g, String a, String v) = dep.split(":") as List
+        if (g && a && v) {
+           ArtifactResolutionResult res = project.dependencies.createArtifactResolutionQuery()
+                   .forModule(g, a, v)
+                   .withArtifacts(MavenModule, MavenPomArtifact)
+                   .execute()
 
-        def connection = null
-        res.resolvedComponents.each {
-            it.getArtifacts(MavenPomArtifact).each {
-                if (connection) {
-                    return
-                }
+           def connection = null
+           res.resolvedComponents.each {
+               it.getArtifacts(MavenPomArtifact).each {
+                   if (connection) {
+                       return
+                   }
 
-                def xmlFile = it.file
-                def xml = new XmlSlurper().parse(xmlFile)
-                connection = xml.scm.connection ? xml.scm.connection[0].text() : ""
+                   def xmlFile = it.file
+                   def xml = new XmlSlurper().parse(xmlFile)
+                   connection = xml.scm.connection ? xml.scm.connection[0].text() : ""
 
-                if (!connection) {
-                    if (xml.'parent'.groupId.text()) {
-                        def parentPom = "${xml.'parent'.groupId.text()}:${xml.'parent'.artifactId.text()}:${xml.'parent'.version.text()}"
-                        connection = findConnection(project, parentPom)
-                    }
-                }
-            }
+                   if (!connection) {
+                       if (xml.'parent'.groupId.text()) {
+                           def parentPom = "${xml.'parent'.groupId.text()}:${xml.'parent'.artifactId.text()}:${xml.'parent'.version.text()}"
+                           connection = findConnection(project, parentPom)
+                       }
+                   }
+               }
+           }
+
+           return connection
+        } else {
+            println("[WARNING] Incorrect GAV Coordinates: '${dep}'")
         }
-
-        return connection
+        return null
     }
 
     static String findBaseUri(String connection) {
@@ -761,11 +766,13 @@ abstract class LicenseReportText extends DefaultTask {
 
         for(def dep in usableDeps){
             def conn = UtilClass.findConnection(project, dep)
-            def gitIndex = conn.lastIndexOf(".git")
-            if(gitIndex > 0) {
-                conn = conn.substring(0, gitIndex)
+            if (conn) {
+               def gitIndex = conn.lastIndexOf(".git")
+               if(gitIndex > 0) {
+                   conn = conn.substring(0, gitIndex)
+               }
+               findCopyrightsForDep(dep, conn)
             }
-            findCopyrightsForDep(dep, conn)
         }
 
         findMicronautCopyrights()
