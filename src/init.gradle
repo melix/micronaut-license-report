@@ -1,5 +1,6 @@
 import com.github.vlsi.gradle.license.api.*
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import groovy.json.StreamingJsonBuilder
 import groovy.xml.DOMBuilder
 import groovy.xml.XmlSlurper
@@ -23,6 +24,7 @@ initscript {
         classpath "org.codehaus.groovy:groovy-xml:3.0.8"
         classpath "org.codehaus.groovy:groovy-json:3.0.8"
         classpath "org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r"
+        classpath "org.cyclonedx:cyclonedx-gradle-plugin:2.3.0"
     }
 }
 
@@ -35,6 +37,7 @@ rootProject {
     def aggregator = rootProject.tasks.register("licenseReport", ReportAggregator) {
         jsonAggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
         mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
+        mergedCycloneDxBomReport.set(layout.buildDirectory.file("reports/licenseReport/all-sbom.json"))
     }
 
     def allModulesRuntimeClasspath = rootProject.configurations.create("allRuntimeClasspath") {
@@ -100,11 +103,20 @@ rootProject {
                                 ignoreMissingLicenseFor(it)
                             }
                         }
+
+                        def cycloneDxBOMTask = tasks.register("generateCycloneDxBom", org.cyclonedx.gradle.CycloneDxTask) {
+                            schemaVersion = "1.6"
+                            outputFormat = "json"
+                        }
+
                         aggregator.configure {
 //                dependsOn(singleReport)
                             mustRunAfter(singleReport)
+                            mustRunAfter(cycloneDxBOMTask)
                             reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
+                            bomJsonReports.from(new File(cycloneDxBOMTask.get().destination.get(), "bom.json"))
                         }
+
                         def dependencyTreeSubproject = tasks.register("dependencyTree", DependencyTree){
                             mustRunAfter(singleReport)
                             rootComponent = project.getConfigurations()
@@ -266,16 +278,62 @@ abstract class ReportAggregator extends DefaultTask {
     @InputFiles
     abstract ConfigurableFileCollection getReports()
 
+    @InputFiles
+    abstract ConfigurableFileCollection getBomJsonReports()
+
     @OutputFile
     abstract RegularFileProperty getJsonAggregatedReport()
 
     @OutputFile
     abstract RegularFileProperty getMergedXMLReport()
 
+    @OutputFile
+    abstract RegularFileProperty getMergedCycloneDxBomReport()
+
     @TaskAction
     void execute() {
         writeJsonReport()
         mergeXMLReports()
+        mergeBomJsonReport()
+    }
+
+    private void mergeBomJsonReport() {
+        def components = []
+        def dependencies = []
+        def metadata = []
+        bomJsonReports.files.each {
+            if (it.exists()) {
+                def jsonSlurper = new JsonSlurper()
+                def bomObject = jsonSlurper.parse(it)
+                if (metadata.isEmpty()) {
+                   metadata = bomObject.metadata
+                }
+                bomObject.components.each {
+                    if (!components.contains(it)) {
+                        components.add(it)
+                    }
+                }
+                bomObject.dependencies.each {
+                    if (!dependencies.contains(it)) {
+                        dependencies.add(it)
+                    }
+                }
+            }
+        }
+        def jsonStr = JsonOutput.toJson([
+                "bomFormat" : "CycloneDX",
+                "specVersion" : "1.6",
+                "version" : 1,
+                "metadata": metadata,
+                "components": components,
+                "dependencies": dependencies
+
+        ])
+        mergedCycloneDxBomReport.get().asFile.with {
+            it.parentFile.mkdirs()
+            it.text = JsonOutput.prettyPrint(jsonStr)
+            println "Wrote $it"
+        }
     }
 
     private void mergeXMLReports() {
