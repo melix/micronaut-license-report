@@ -107,6 +107,13 @@ rootProject {
                         def cycloneDxBOMTask = tasks.register("generateCycloneDxBom", org.cyclonedx.gradle.CycloneDxTask) {
                             schemaVersion = "1.6"
                             outputFormat = "json"
+                            def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
+                            def excludedDeps = new File(parentDir + "/src/resources/excluded_deps.txt").readLines()
+                            def excludedProjects = []
+                            for (String project : excludedDeps) {
+                                excludedProjects << "micronaut-${project}"
+                            }
+                            skipProjects = excludedProjects
                         }
 
                         aggregator.configure {
