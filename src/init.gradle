@@ -37,7 +37,6 @@ rootProject {
     def aggregator = rootProject.tasks.register("licenseReport", ReportAggregator) {
         jsonAggregatedReport.set(layout.buildDirectory.file("reports/licenseReport/report.json"))
         mergedXMLReport.set(layout.buildDirectory.file("reports/licenseReport/all-licenses.xml"))
-        mergedCycloneDxBomReport.set(layout.buildDirectory.file("reports/licenseReport/all-sbom.json"))
     }
 
     def allModulesRuntimeClasspath = rootProject.configurations.create("allRuntimeClasspath") {
@@ -91,6 +90,44 @@ rootProject {
         }
     }
 
+    def cycloneDxBOMTask = tasks.register("generateCycloneDxBom", org.cyclonedx.gradle.CycloneDxTask) {
+        mustRunAfter(dependencyTree)
+        doFirst {
+            configurations {
+                customDependencies
+            }
+
+            def dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
+            def lines = dependencyTreeFile.get().asFile.readLines()
+
+            // Add dependencies from top level 'tree_all.txt' to the custom configuration
+            for (String line : lines) {
+                def dependency = line.trim()
+                if (dependency == "" || !dependency.contains(".")) { break }
+                dependencies {
+                    customDependencies dependency
+                }
+            }
+        }
+
+        schemaVersion = "1.6"
+        outputFormat = "json"
+        includeConfigs = ["customDependencies"]
+        destination = file("build/reports/licenseReport")
+        outputName = "unfiltered-sbom"
+    }
+
+    def filterSbomTask = tasks.register("filterSBOM", FilterSBOM) {
+        mustRunAfter(cycloneDxBOMTask)
+        bomReportJSON = rootProject.layout.buildDirectory.file("reports/licenseReport/unfiltered-sbom.json")
+        def excludedDeps = new File(rootProject.projectDir.parentFile.parentFile.absolutePath + "/src/resources/excluded_deps.txt")
+        if(excludedDeps.exists()) {
+            excludedDependenciesFile = excludedDeps
+        }
+
+        filteredBomReportJSON = rootProject.layout.buildDirectory.file("reports/licenseReport/all-sbom.json")
+    }
+
     allprojects {
         pluginManager.withPlugin('java') {
             pluginManager.withPlugin('maven-publish') {
@@ -104,24 +141,11 @@ rootProject {
                             }
                         }
 
-                        def cycloneDxBOMTask = tasks.register("generateCycloneDxBom", org.cyclonedx.gradle.CycloneDxTask) {
-                            schemaVersion = "1.6"
-                            outputFormat = "json"
-                            def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
-                            def excludedDeps = new File(parentDir + "/src/resources/excluded_deps.txt").readLines()
-                            def excludedProjects = []
-                            for (String project : excludedDeps) {
-                                excludedProjects << "micronaut-${project}"
-                            }
-                            skipProjects = excludedProjects
-                        }
-
                         aggregator.configure {
 //                dependsOn(singleReport)
                             mustRunAfter(singleReport)
                             mustRunAfter(cycloneDxBOMTask)
                             reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
-                            bomJsonReports.from(new File(cycloneDxBOMTask.get().destination.get(), "bom.json"))
                         }
 
                         def dependencyTreeSubproject = tasks.register("dependencyTree", DependencyTree){
@@ -285,88 +309,16 @@ abstract class ReportAggregator extends DefaultTask {
     @InputFiles
     abstract ConfigurableFileCollection getReports()
 
-    @InputFiles
-    abstract ConfigurableFileCollection getBomJsonReports()
-
     @OutputFile
     abstract RegularFileProperty getJsonAggregatedReport()
 
     @OutputFile
     abstract RegularFileProperty getMergedXMLReport()
 
-    @OutputFile
-    abstract RegularFileProperty getMergedCycloneDxBomReport()
-
     @TaskAction
     void execute() {
         writeJsonReport()
         mergeXMLReports()
-        mergeBomJsonReport()
-    }
-
-    // See specVersion: https://cyclonedx.org/docs/1.6/json/#specVersion
-    private void mergeBomJsonReport() {
-        def bomFormat = "CycloneDX"
-        def specVersion = "1.6"
-        def version = 1
-        def serialNumber = null
-        def metadata = [] as Set
-        def bomMap = [
-            components: [] as Set,
-            dependencies: [] as Set,
-            services: [] as Set,
-            externalReferences: [] as Set,
-            compositions: [] as Set,
-            vulnerabilities: [] as Set,
-            annotations: [] as Set,
-            formulation: [] as Set,
-            properties: [] as Set,
-            // declarations: [:],
-            // definitions: [:],
-            // signature: [:],
-        ]
-        bomJsonReports.files.each { File bomReportJSON ->
-            if (bomReportJSON.exists()) {
-                def jsonSlurper = new JsonSlurper()
-                def bomObject = jsonSlurper.parse(bomReportJSON)
-
-                if (metadata.isEmpty()) {
-                   metadata = bomObject.metadata
-                }
-
-                def updateBomMap = { key ->
-                    def property = bomObject[key]
-                    if (!property) return
-
-                    property.each {
-                        if (!bomMap[key].contains(it)) {
-                            bomMap[key].add(it)
-                        }
-                    }
-                }
-
-                bomMap.each { key, value ->
-                    updateBomMap(key)
-                }
-
-            }
-        }
-        def filteredBomMap = bomMap.findAll { key, value ->
-            !value.isEmpty()
-        }
-        bomMap = [
-                "bomFormat" : bomFormat,
-                "specVersion" : specVersion,
-                "version" : version,
-                "metadata": metadata,
-        ] + filteredBomMap
-
-        def jsonStr = JsonOutput.toJson(bomMap)
-        mergedCycloneDxBomReport.get().asFile.with {
-            it.parentFile.mkdirs()
-            it.text = JsonOutput.prettyPrint(jsonStr)
-            println "Wrote $it"
-        }
     }
 
     private void mergeXMLReports() {
@@ -1261,5 +1213,109 @@ abstract class FindCopyrights extends DefaultTask{
         }
 
         checkoutReposAndGetCopyrights()
+    }
+}
+
+abstract class FilterSBOM extends DefaultTask {
+
+    @InputFile
+    abstract RegularFileProperty getBomReportJSON()
+
+    @Optional
+    @InputFile
+    abstract RegularFileProperty getExcludedDependenciesFile()
+
+    @OutputFile
+    abstract RegularFileProperty getFilteredBomReportJSON()
+
+    @TaskAction
+    void filterSBOM() {
+        removeExcludedDependenciesFromSbom()
+    }
+
+    // See specVersion: https://cyclonedx.org/docs/1.6/json/#specVersion
+    private void removeExcludedDependenciesFromSbom() {
+        try {
+            if (!excludedDependenciesFile.isPresent()) {
+                return
+            }
+            def excludedDependencies = excludedDependenciesFile.get().asFile.readLines()
+
+            def bomFormat = "CycloneDX"
+            def specVersion = "1.6"
+            def version = 1
+            def serialNumber = "urn:uuid:" + UUID.randomUUID().toString()
+            def metadata = [] as Set
+            def bomMap = [
+                    components        : [] as Set,
+                    dependencies      : [] as Set,
+                    services          : [] as Set,
+                    externalReferences: [] as Set,
+                    compositions      : [] as Set,
+                    vulnerabilities   : [] as Set,
+                    annotations       : [] as Set,
+                    formulation       : [] as Set,
+                    properties        : [] as Set,
+            ]
+
+            def bomFile = bomReportJSON.asFile.get()
+
+            def jsonSlurper = new JsonSlurper()
+            def bomObject = jsonSlurper.parse(bomFile)
+            metadata = bomObject.metadata
+
+            def updateBomMap = { key ->
+                def section = bomObject[key]
+                if (!section) return
+
+                section.each {
+                    for (String exclusion : excludedDependencies) {
+                        // for dependencies
+                        if (it."ref" && it."ref".contains(exclusion)) {
+                            return
+                        }
+
+                        // for externalRerferences
+                        if (it."url" && it."url".contains(exclusion)) {
+                            return
+                        }
+
+                        // for others: components, services ...
+                        if (it."bom-ref" && it."bom-ref".contains(exclusion)) {
+                            return
+                        }
+                    }
+
+                    if (!bomMap[key].contains(it)) {
+                        bomMap[key].add(it)
+                    }
+                }
+            }
+
+            bomMap.each { key, value ->
+                updateBomMap(key)
+            }
+
+            def filteredBomMap = bomMap.findAll { key, value ->
+                !value.isEmpty()
+            }
+            bomMap = [
+                    "bomFormat"   : bomFormat,
+                    "specVersion" : specVersion,
+                    "version"     : version,
+                    "serialNumber": serialNumber,
+                    "metadata"    : metadata,
+            ] + filteredBomMap
+
+            def jsonStr = JsonOutput.toJson(bomMap)
+            filteredBomReportJSON.get().asFile.with {
+                it.parentFile.mkdirs()
+                it.text = JsonOutput.prettyPrint(jsonStr)
+                println "Wrote $it"
+            }
+        } catch (Exception e) {
+            println e.toString()
+            return
+        }
     }
 }
