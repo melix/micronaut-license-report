@@ -144,7 +144,6 @@ rootProject {
                         aggregator.configure {
 //                dependsOn(singleReport)
                             mustRunAfter(singleReport)
-                            mustRunAfter(cycloneDxBOMTask)
                             reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
                         }
 
@@ -1275,7 +1274,7 @@ abstract class FilterSBOM extends DefaultTask {
                             return
                         }
 
-                        // for externalRerferences
+                        // for externalReferences
                         if (it."url" && it."url".contains(exclusion)) {
                             return
                         }
@@ -1315,7 +1314,6 @@ abstract class FilterSBOM extends DefaultTask {
             }
         } catch (Exception e) {
             println e.toString()
-            return
         }
     }
 }
