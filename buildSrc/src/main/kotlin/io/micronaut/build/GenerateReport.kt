@@ -29,6 +29,23 @@ abstract class GenerateReport : DefaultTask() {
         if(cloneOnly){
             return
         }
+        val allTasks = mutableListOf(
+            "cleanGenerateLicense",
+            "generateLicense",
+            "dependencyTree",
+            "findCopyrights",
+            "licenseReport",
+            "licenseReportText",
+            "licenseReportAggregatedText",
+            "generateCycloneDxBom",
+            "filterSbom"
+        )
+        val isSbomOnly = providers.gradleProperty("sbomOnly").map(String::toBoolean).getOrElse(false)
+        if (isSbomOnly) {
+            val excludedTasks = listOf("licenseReportText", "licenseReportAggregatedText")
+            allTasks.removeIf { task -> excludedTasks.contains(task) }
+        }
+
         val initScriptPath = initScript.get().asFile.absolutePath
         println("Injecting init script $initScriptPath")
         val projectDir = projectDirectory.get().asFile
@@ -43,7 +60,7 @@ abstract class GenerateReport : DefaultTask() {
                     .connect().use {
                     it.newBuild()
                         .withArguments("-I", initScriptPath, "-S", "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds, "-PaddCopyrightsFromSource=" + addCopyrightsFromSource, "-PnettyNotice=" + nettyNotice)
-                        .forTasks("cleanGenerateLicense", "generateLicense", "dependencyTree", "findCopyrights", "licenseReport", "licenseReportText", "licenseReportAggregatedText" ,"generateCycloneDxBom")
+                        .forTasks(*allTasks.toTypedArray())
                         .setStandardOutput(System.out)
                         .setStandardError(System.err)
                         .addJvmArguments("-Xmx${heapSize}m")
