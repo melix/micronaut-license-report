@@ -10,9 +10,9 @@ If you want to add dependencies to be excluded from the report, either by full n
 By default, the tool will not generate the SBOM. To enable SBOM generation, use one of the following options:
 
 - `-PincludeSbom=true`: Generates the SBOM along with all other reports.
-- `-PsbomOnly=true`   : Generates only the SBOM.
+- `-PonlySbom=true`   : Generates only the SBOM.
 
-Note: If both options are set to true, only `-PsbomOnly=true` will take effect.
+Note: If both options are set to true, only `-PonlySbom=true` will take effect.
 
 ## How to use
 

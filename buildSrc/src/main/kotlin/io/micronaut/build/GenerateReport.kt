@@ -41,12 +41,12 @@ abstract class GenerateReport : DefaultTask() {
             "filterSbom"
         )
         val includeSbomInReport = providers.gradleProperty("includeSbom").map(String::toBoolean).getOrElse(false)
-        val isSbomOnly = providers.gradleProperty("sbomOnly").map(String::toBoolean).getOrElse(false)
-        if (!includeSbomInReport && !isSbomOnly) {
+        val isOnlySbom = providers.gradleProperty("onlySbom").map(String::toBoolean).getOrElse(false)
+        if (!includeSbomInReport && !isOnlySbom) {
             val excludedTasks = listOf("generateCycloneDxBom", "filterSbom")
             allTasks.removeIf { task -> excludedTasks.contains(task)}
         }
-        if (isSbomOnly) {
+        if (isOnlySbom) {
             val excludedTasks = listOf("licenseReportText", "licenseReportAggregatedText")
             allTasks.removeIf { task -> excludedTasks.contains(task) }
         }
