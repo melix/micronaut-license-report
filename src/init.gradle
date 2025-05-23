@@ -113,19 +113,19 @@ rootProject {
         schemaVersion = "1.6"
         outputFormat = "json"
         includeConfigs = ["customDependencies"]
-        destination = file("build/reports/licenseReport")
+        destination = file("build/reports/sbom")
         outputName = "unfiltered-sbom"
     }
 
     def filterSbomTask = tasks.register("filterSBOM", FilterSBOM) {
         mustRunAfter(cycloneDxBOMTask)
-        bomReportJSON = rootProject.layout.buildDirectory.file("reports/licenseReport/unfiltered-sbom.json")
+        bomReportJSON = rootProject.layout.buildDirectory.file("reports/sbom/unfiltered-sbom.json")
         def excludedDeps = new File(rootProject.projectDir.parentFile.parentFile.absolutePath + "/src/resources/excluded_deps.txt")
         if(excludedDeps.exists()) {
             excludedDependenciesFile = excludedDeps
         }
 
-        filteredBomReportJSON = rootProject.layout.buildDirectory.file("reports/licenseReport/all-sbom.json")
+        filteredBomReportJSON = rootProject.layout.buildDirectory.file("reports/sbom/all-sbom.json")
     }
 
     allprojects {

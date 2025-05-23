@@ -85,7 +85,7 @@ abstract class GenerateReport : DefaultTask() {
                 targetJson.delete()
             }
 
-            val sbomReportFile = File(projectDir, "build/reports/licenseReport/all-sbom.json")
+            val sbomReportFile = File(projectDir, "build/reports/sbom/all-sbom.json")
             val targetSbomJson = File(this, "all-sbom.json")
             if (sbomReportFile.exists()) {
                 targetSbomJson.writeText(sbomReportFile.readText())
