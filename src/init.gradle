@@ -47,6 +47,11 @@ rootProject {
         }
     }
 
+    def customDependencies = rootProject.configurations.create("customDependencies") {
+        canBeResolved = true
+        canBeConsumed = false
+    }
+
     def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
         rootComponent = allModulesRuntimeClasspath.getIncoming().getResolutionResult().getRoot()
         def parentDir = rootProject.projectDir.parentFile.parentFile.absolutePath
@@ -90,36 +95,31 @@ rootProject {
         }
     }
 
-    def cycloneDxBOMTask = tasks.register("generateCycloneDxBom", org.cyclonedx.gradle.CycloneDxTask) {
-        mustRunAfter(dependencyTree)
-        doFirst {
-            configurations {
-                customDependencies
-            }
-
-            def dependencyTreeFile = rootProject.layout.buildDirectory.file("licenses/tree_all.txt")
-            def lines = dependencyTreeFile.get().asFile.readLines()
-
-            // Add dependencies from top level 'tree_all.txt' to the custom configuration
-            for (String line : lines) {
-                def dependency = line.trim()
-                if (dependency == "" || !dependency.contains(".")) { break }
-                dependencies {
-                    customDependencies dependency
-                }
-            }
+    def dependencyProvider = dependencyTree.flatMap { task ->
+        return providers.fileContents(task.dependencyTreeReport).asText.map { content ->
+            return content.readLines()
+                    .findAll { line -> line.trim() && line.contains(".") }
+                    .collect { line -> line.trim() }
         }
+    }
 
+    def cycloneDxBOMTask = tasks.register("generateCycloneDxBom", org.cyclonedx.gradle.CycloneDxTask) {
+        dependsOn(dependencyTree)
         schemaVersion = "1.6"
         outputFormat = "json"
-        includeConfigs = ["customDependencies"]
         destination = file("build/reports/sbom")
         outputName = "unfiltered-sbom"
+        customDependencies.dependencies.addAllLater( dependencyProvider.map { deps -> deps.collect { dep -> project.dependencies.create(dep) } } )
+        includeConfigs = ["customDependencies"]
     }
 
     def filterSbomTask = tasks.register("filterSBOM", FilterSBOM) {
-        mustRunAfter(cycloneDxBOMTask)
-        bomReportJSON = rootProject.layout.buildDirectory.file("reports/sbom/unfiltered-sbom.json")
+        // Wiring the output of cycloneDxBOMTask to the input of filterSbomTask
+        bomReportJSON = cycloneDxBOMTask.flatMap { task ->
+            task.destination.map { destPath ->
+                project.layout.projectDirectory.file("${destPath}/${task.outputName.get()}.${task.outputFormat.get()}")
+            }
+        }
         def excludedDeps = new File(rootProject.projectDir.parentFile.parentFile.absolutePath + "/src/resources/excluded_deps.txt")
         if(excludedDeps.exists()) {
             excludedDependenciesFile = excludedDeps
