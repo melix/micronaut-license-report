@@ -605,7 +605,7 @@ abstract class LicenseReportText extends DefaultTask {
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
             if (txt) {
-                sb = appendLicense(txt, fn, fromComponent, sb)
+                sb = appendLicense(txt, f, fromComponent, sb)
                 seen.add(fileName)
             }
         }
@@ -663,7 +663,7 @@ abstract class LicenseReportText extends DefaultTask {
             def fn = ext ? "${f}.${ext}" : f
             def txt = URL_CACHE.get("${baseUri}/${fp}${fn}")
             if (txt) {
-                sb = appendLicense(txt, fn, fromComponent, sb)
+                sb = appendLicense(txt, f, fromComponent, sb)
                 seen.add(fileName)
             }
         }
