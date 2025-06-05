@@ -29,6 +29,28 @@ abstract class GenerateReport : DefaultTask() {
         if(cloneOnly){
             return
         }
+        val allTasks = mutableListOf(
+            "cleanGenerateLicense",
+            "generateLicense",
+            "dependencyTree",
+            "findCopyrights",
+            "licenseReport",
+            "licenseReportText",
+            "licenseReportAggregatedText",
+            "generateCycloneDxBom",
+            "filterSbom"
+        )
+        val includeSbomInReport = providers.gradleProperty("includeSbom").map(String::toBoolean).getOrElse(false)
+        val isOnlySbom = providers.gradleProperty("onlySbom").map(String::toBoolean).getOrElse(false)
+        if (!includeSbomInReport && !isOnlySbom) {
+            val excludedTasks = listOf("generateCycloneDxBom", "filterSbom")
+            allTasks.removeIf { task -> excludedTasks.contains(task)}
+        }
+        if (isOnlySbom) {
+            val excludedTasks = listOf("licenseReportText", "licenseReportAggregatedText")
+            allTasks.removeIf { task -> excludedTasks.contains(task) }
+        }
+
         val initScriptPath = initScript.get().asFile.absolutePath
         println("Injecting init script $initScriptPath")
         val projectDir = projectDirectory.get().asFile
@@ -43,7 +65,7 @@ abstract class GenerateReport : DefaultTask() {
                     .connect().use {
                     it.newBuild()
                         .withArguments("-I", initScriptPath, "-S", "--continue", "--parallel", "--no-configuration-cache", "-PincludeMicronautModules=" + includeMicronautModules, "-PexcludedModuleIds="+excludedModuleIds, "-PaddCopyrightsFromSource=" + addCopyrightsFromSource, "-PnettyNotice=" + nettyNotice)
-                        .forTasks("cleanGenerateLicense", "generateLicense", "dependencyTree", "findCopyrights", "licenseReport", "licenseReportText", "licenseReportAggregatedText")
+                        .forTasks(*allTasks.toTypedArray())
                         .setStandardOutput(System.out)
                         .setStandardError(System.err)
                         .addJvmArguments("-Xmx${heapSize}m")
@@ -62,6 +84,15 @@ abstract class GenerateReport : DefaultTask() {
             } else {
                 targetJson.delete()
             }
+
+            val sbomReportFile = File(projectDir, "build/reports/sbom/all-sbom.json")
+            val targetSbomJson = File(this, "all-sbom.json")
+            if (sbomReportFile.exists()) {
+                targetSbomJson.writeText(sbomReportFile.readText())
+            } else {
+                targetSbomJson.delete()
+            }
+
             val textReports = File(projectDir, "build/licenses")
             if (textReports.exists()) {
                 textReports.listFiles()

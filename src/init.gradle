@@ -1,5 +1,6 @@
 import com.github.vlsi.gradle.license.api.*
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import groovy.json.StreamingJsonBuilder
 import groovy.xml.DOMBuilder
 import groovy.xml.XmlSlurper
@@ -23,6 +24,7 @@ initscript {
         classpath "org.codehaus.groovy:groovy-xml:3.0.8"
         classpath "org.codehaus.groovy:groovy-json:3.0.8"
         classpath "org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r"
+        classpath "org.cyclonedx:cyclonedx-gradle-plugin:2.3.0"
     }
 }
 
@@ -43,6 +45,11 @@ rootProject {
         attributes {
             attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
         }
+    }
+
+    def customDependencies = rootProject.configurations.create("customDependencies") {
+        canBeResolved = true
+        canBeConsumed = false
     }
 
     def dependencyTree = tasks.register("dependencyTree", DependencyTree) {
@@ -88,6 +95,39 @@ rootProject {
         }
     }
 
+    def dependencyProvider = dependencyTree.flatMap { task ->
+        return providers.fileContents(task.dependencyTreeReport).asText.map { content ->
+            return content.readLines()
+                    .findAll { line -> line.trim() && line.contains(".") }
+                    .collect { line -> line.trim() }
+        }
+    }
+
+    def cycloneDxBOMTask = tasks.register("generateCycloneDxBom", org.cyclonedx.gradle.CycloneDxTask) {
+        dependsOn(dependencyTree)
+        schemaVersion = "1.6"
+        outputFormat = "json"
+        destination = file("build/reports/sbom")
+        outputName = "unfiltered-sbom"
+        customDependencies.dependencies.addAllLater( dependencyProvider.map { deps -> deps.collect { dep -> project.dependencies.create(dep) } } )
+        includeConfigs = ["customDependencies"]
+    }
+
+    def filterSbomTask = tasks.register("filterSBOM", FilterSBOM) {
+        // Wiring the output of cycloneDxBOMTask to the input of filterSbomTask
+        bomReportJSON = cycloneDxBOMTask.flatMap { task ->
+            task.destination.map { destPath ->
+                project.layout.projectDirectory.file("${destPath}/${task.outputName.get()}.${task.outputFormat.get()}")
+            }
+        }
+        def excludedDeps = new File(rootProject.projectDir.parentFile.parentFile.absolutePath + "/src/resources/excluded_deps.txt")
+        if(excludedDeps.exists()) {
+            excludedDependenciesFile = excludedDeps
+        }
+
+        filteredBomReportJSON = rootProject.layout.buildDirectory.file("reports/sbom/all-sbom.json")
+    }
+
     allprojects {
         pluginManager.withPlugin('java') {
             pluginManager.withPlugin('maven-publish') {
@@ -100,11 +140,13 @@ rootProject {
                                 ignoreMissingLicenseFor(it)
                             }
                         }
+
                         aggregator.configure {
 //                dependsOn(singleReport)
                             mustRunAfter(singleReport)
                             reports.from(new File(singleReport.get().licenseDir.asFile.get(), "license.xml"))
                         }
+
                         def dependencyTreeSubproject = tasks.register("dependencyTree", DependencyTree){
                             mustRunAfter(singleReport)
                             rootComponent = project.getConfigurations()
@@ -1170,5 +1212,108 @@ abstract class FindCopyrights extends DefaultTask{
         }
 
         checkoutReposAndGetCopyrights()
+    }
+}
+
+abstract class FilterSBOM extends DefaultTask {
+
+    @InputFile
+    abstract RegularFileProperty getBomReportJSON()
+
+    @Optional
+    @InputFile
+    abstract RegularFileProperty getExcludedDependenciesFile()
+
+    @OutputFile
+    abstract RegularFileProperty getFilteredBomReportJSON()
+
+    @TaskAction
+    void filterSBOM() {
+        removeExcludedDependenciesFromSbom()
+    }
+
+    // See specVersion: https://cyclonedx.org/docs/1.6/json/#specVersion
+    private void removeExcludedDependenciesFromSbom() {
+        try {
+            if (!excludedDependenciesFile.isPresent()) {
+                return
+            }
+            def excludedDependencies = excludedDependenciesFile.get().asFile.readLines()
+
+            def bomFormat = "CycloneDX"
+            def specVersion = "1.6"
+            def version = 1
+            def serialNumber = "urn:uuid:" + UUID.randomUUID().toString()
+            def metadata = [] as Set
+            def bomMap = [
+                    components        : [] as Set,
+                    dependencies      : [] as Set,
+                    services          : [] as Set,
+                    externalReferences: [] as Set,
+                    compositions      : [] as Set,
+                    vulnerabilities   : [] as Set,
+                    annotations       : [] as Set,
+                    formulation       : [] as Set,
+                    properties        : [] as Set,
+            ]
+
+            def bomFile = bomReportJSON.asFile.get()
+
+            def jsonSlurper = new JsonSlurper()
+            def bomObject = jsonSlurper.parse(bomFile)
+            metadata = bomObject.metadata
+
+            def updateBomMap = { key ->
+                def section = bomObject[key]
+                if (!section) return
+
+                section.each {
+                    for (String exclusion : excludedDependencies) {
+                        // for dependencies
+                        if (it."ref" && it."ref".contains(exclusion)) {
+                            return
+                        }
+
+                        // for externalReferences
+                        if (it."url" && it."url".contains(exclusion)) {
+                            return
+                        }
+
+                        // for others: components, services ...
+                        if (it."bom-ref" && it."bom-ref".contains(exclusion)) {
+                            return
+                        }
+                    }
+
+                    if (!bomMap[key].contains(it)) {
+                        bomMap[key].add(it)
+                    }
+                }
+            }
+
+            bomMap.each { key, value ->
+                updateBomMap(key)
+            }
+
+            def filteredBomMap = bomMap.findAll { key, value ->
+                !value.isEmpty()
+            }
+            bomMap = [
+                    "bomFormat"   : bomFormat,
+                    "specVersion" : specVersion,
+                    "version"     : version,
+                    "serialNumber": serialNumber,
+                    "metadata"    : metadata,
+            ] + filteredBomMap
+
+            def jsonStr = JsonOutput.toJson(bomMap)
+            filteredBomReportJSON.get().asFile.with {
+                it.parentFile.mkdirs()
+                it.text = JsonOutput.prettyPrint(jsonStr)
+                println "Wrote $it"
+            }
+        } catch (Exception e) {
+            println e.toString()
+        }
     }
 }
