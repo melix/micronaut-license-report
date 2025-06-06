@@ -603,10 +603,13 @@ abstract class LicenseReportText extends DefaultTask {
         // Using local ASM license file (src/asm_license.txt)
         // because requests to the ASM repository are blocked when the tool runs
         if (fromComponent.toLowerCase().contains("asm")) {
-            def license = findAsmLicense()
-            if (license) {
-                sb = appendLicense(license, "LICENSE", fromComponent, sb)
-                return sb.toString()
+            def groupId = fromComponent.toLowerCase().split(":")[0]
+            if (groupId == "org.ow2.asm") {
+                def license = findAsmLicense()
+                if (license) {
+                    sb = appendLicense(license, "LICENSE", fromComponent, sb)
+                    return sb.toString()
+                }
             }
         }
 
