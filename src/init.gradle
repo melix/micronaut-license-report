@@ -93,6 +93,10 @@ rootProject {
         if (apacheLicense.exists()) {
             apacheLicenseFile = apacheLicense
         }
+        def asmLicense = new File(parentDir + "/src/resources/asm_license.txt")
+        if (asmLicense.exists()) {
+            asmLicenseFile = asmLicense
+        }
     }
 
     def dependencyProvider = dependencyTree.flatMap { task ->
@@ -200,6 +204,10 @@ rootProject {
                             if (apacheLicense.exists()) {
                                 apacheLicenseFile = apacheLicense
                             }
+                            def asmLicense = new File(parentDir + "/src/resources/asm_license.txt")
+                            if (asmLicense.exists()) {
+                                asmLicenseFile = asmLicense
+                            }
                         }
                     }
                 }
@@ -253,42 +261,7 @@ class UtilClass {
     }
 
     static String findBaseUri(String connection) {
-        if (!connection) {
-            return null
-        }
-        String baseUri = null
-        def idx = connection.indexOf("http://bitbucket.org/")
-        if (idx == -1) {
-            idx = connection.indexOf("https://bitbucket.org/")
-        }
-        if (idx == -1) {
-            idx = connection.indexOf("https://gitlab.ow2.org/")
-        }
-        if (idx == -1) {
-            idx = connection.indexOf("http://gitbox.apache.org/")
-            if (idx != -1) {
-                //Changing the source site from gitbox to github by getting the name of the module from the connection,
-                // as it is easier to work with than gitbox
-                String path = "apache/" + connection.tokenize('/').last() - ".git"
-                baseUri = "https://raw.githubusercontent.com/$path/master"
-            }
-        }
-        if (idx > 0 && baseUri == null) {
-            baseUri = "${connection.substring(idx).replace('http:', 'https:')}/raw/master"
-        } else {
-            idx = connection.indexOf("github.com")
-            if (idx > 0) {
-                String path = connection.substring(idx + 10).replaceAll(':', '/')
-                //Added because of the micrometer dependency with the connection /googleapis/java-common-protos.git/proto-google-common-protos
-                def gitIndex = path.indexOf(".git")
-                if (gitIndex > 0) {
-                    path = path.substring(0, gitIndex)
-                }
-                path -= ".git"
-                baseUri = "https://raw.githubusercontent.com/$path/master"
-            }
-        }
-        return baseUri
+        return SourceRepositoryHandler.findBaseUri(connection)
     }
 
     static String makeDirName(String path){
@@ -301,6 +274,107 @@ class UtilClass {
             dirName = split[split.size() - 2]
         }
         return dirName
+    }
+}
+
+class SourceRepositoryHandler {
+    private static def BITBUCKET_SITES = [
+            "http://bitbucket.org/",
+            "https://bitbucket.org/"
+    ]
+    private static def GITLAB_SITES = [
+            "https://gitlab.ow2.org/"
+    ]
+    private static def GITHUB_SITES = [
+            "github.com"
+    ]
+    private static def APACHE_SITES = [
+            "http://gitbox.apache.org/",
+            "https://gitbox.apache.org/",
+            "https://git-wip-us.apache.org/",
+            "http://svn.apache.org/",
+            "https://code.google.com/"
+    ]
+
+    private enum SourceType {
+        BITBUCKET, GITLAB, APACHE, GITHUB, UNKNOWN
+    }
+
+    private static boolean containsAny(String connection, List<String> sourceSites) {
+        return sourceSites.stream().anyMatch(connection::contains);
+    }
+
+    private static SourceType getSourceType(String connection) {
+        if (!connection) {
+            return SourceType.UNKNOWN;
+        }
+
+        if (containsAny(connection, BITBUCKET_SITES)) {
+            return SourceType.BITBUCKET;
+        }
+        if (containsAny(connection, GITLAB_SITES)) {
+            return SourceType.GITLAB;
+        }
+        if (containsAny(connection, APACHE_SITES)) {
+            return SourceType.APACHE;
+        }
+        if (containsAny(connection, GITHUB_SITES)) {
+            return SourceType.GITHUB;
+        }
+
+        return SourceType.UNKNOWN;
+    }
+
+    public static String findBaseUri(String connection) {
+        if (!connection) return null
+
+        SourceType sourceType = getSourceType(connection);
+        switch (sourceType) {
+            case SourceType.GITLAB:
+            case SourceType.BITBUCKET:
+                return buildBitbucketGitlabUri(connection);
+            case SourceType.APACHE:
+                return buildApacheUri(connection);
+            case SourceType.GITHUB:
+                return buildGithubUri(connection);
+            case SourceType.UNKNOWN:
+            default:
+                return null;
+        }
+    }
+
+    private static String buildBitbucketGitlabUri(String connection) {
+        def idx = connection.indexOf("http")
+        return "${connection.substring(idx).replace('http:', 'https:')}/raw/master"
+    }
+
+    private static String buildApacheUri(String connection) {
+        // handling special case for appache commons-logging it's comming from svn
+        if (connection.contains("repos/asf/commons/proper/logging/trunk")) {
+            return "https://raw.githubusercontent.com/apache/commons-logging/master"
+        }
+
+        String path = "apache/" + connection.tokenize('/').last() - ".git"
+        return "https://raw.githubusercontent.com/$path/master"
+    }
+
+    private static String buildGithubUri(String connection) {
+        String path = getGithubRepoPath(connection)
+        return "https://raw.githubusercontent.com/$path/master"
+    }
+
+    private static getGithubRepoPath(String connection) {
+        def idx = connection.indexOf("github.com")
+        if (idx == -1) return null
+        String path = connection.substring(idx + "github.com".length()).replaceAll(':', '/')
+
+        // Added because of the micrometer dependency with the connection /googleapis/java-common-protos.git/proto-google-common-protos
+        def gitIndex = path.indexOf(".git")
+        if (gitIndex > 0) {
+            path = path.substring(0, gitIndex)
+        }
+
+        return path - ".git"
     }
 }
 
@@ -466,6 +540,10 @@ abstract class LicenseReportText extends DefaultTask {
 
     @Optional
     @InputFile
+    abstract RegularFileProperty getAsmLicenseFile()
+
+    @Optional
+    @InputFile
     abstract RegularFileProperty getMicronautCopyrightsFile()
 
     @Optional
@@ -546,6 +624,13 @@ abstract class LicenseReportText extends DefaultTask {
         return nettyNoticeFile.text
     }
 
+    String findAsmLicense(){
+        if (!asmLicenseFile.isPresent()) {
+            return ""
+        }
+        return asmLicenseFile.get().asFile.text
+    }
+
     String tryManyLicenses(String baseUri, String fromComponent) {
         StringBuilder sb = new StringBuilder()
         Set<String> seen = []
@@ -556,6 +641,20 @@ abstract class LicenseReportText extends DefaultTask {
                 seen.add("notice")
             }
         }
+
+        // Using local ASM license file (src/asm_license.txt)
+        // because requests to the ASM repository are blocked when the tool runs
+        if (fromComponent.toLowerCase().contains("asm")) {
+            def groupId = fromComponent.toLowerCase().split(":")[0]
+            if (groupId == "org.ow2.asm") {
+                def license = findAsmLicense()
+                if (license) {
+                    sb = appendLicense(license, "LICENSE", fromComponent, sb)
+                    return sb.toString()
+                }
+            }
+        }
+
         [LICENSE_FILE_PATHS, LICENSE_FILE_NAMES, LICENSE_FILE_EXTENSIONS].combinations().each { fp, f, ext ->
             String fileName = f.toLowerCase()
             if(seen.contains(fileName)) {
@@ -1140,6 +1239,9 @@ abstract class FindCopyrights extends DefaultTask{
     void tryCheckout(String connection, File checkoutDir){
         def gitRepo = null
         try {
+            // Clean up the connection URL to avoid double slashes
+            connection = connection.replaceAll("https://github.com//", "https://github.com/")
+            
             println("Checking out repository ${connection} in ${checkoutDir.absolutePath}")
             gitRepo = Git.cloneRepository()
                     .setURI(connection)
